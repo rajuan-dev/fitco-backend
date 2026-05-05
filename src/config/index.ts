@@ -38,6 +38,7 @@ export interface AppConfig {
     monthlySubscriptionIds: string[];
     yearlySubscriptionIds: string[];
     priceTerritory: string;
+    sharedSecret: string;
   };
   google: {
     packageName: string;
@@ -96,7 +97,8 @@ const config: AppConfig = {
       .split(',')
       .map(value => value.trim())
       .filter(Boolean),
-    priceTerritory: process.env.APPLE_PRICE_TERRITORY || 'USA'
+    priceTerritory: process.env.APPLE_PRICE_TERRITORY || 'USA',
+    sharedSecret: process.env.APPLE_SHARED_SECRET || ''
   },
   google: {
     packageName: process.env.GOOGLE_PACKAGE_NAME || '',

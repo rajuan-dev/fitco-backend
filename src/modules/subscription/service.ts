@@ -12,6 +12,7 @@ import {
   getAppleSubscriptionPrice,
   AppleVerifiedSubscription,
   parseAppleWebhookPayload,
+  verifyAppleReceipt,
   verifyAppleTransaction
 } from './apple.service';
 import {
@@ -920,12 +921,18 @@ const normalizeGoogleSubscription = async (
 
 export const verifyAppleSubscription = async ({
   userId,
-  transactionId
+  transactionId,
+  receipt
 }: {
   userId: string;
-  transactionId: string;
+  transactionId?: string;
+  receipt?: string;
 }): Promise<NormalizedSubscriptionResult> => {
-  const verified = await verifyAppleTransaction(transactionId);
+  if (!transactionId && !receipt) {
+    throw createHttpError('Either Apple transactionId or receipt is required', 400);
+  }
+
+  const verified = transactionId ? await verifyAppleTransaction(transactionId) : await verifyAppleReceipt(receipt!);
   return normalizeAppleSubscription(userId, verified);
 };
 

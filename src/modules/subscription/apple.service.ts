@@ -36,7 +36,28 @@ interface AppleNotificationPayload {
   };
 }
 
+interface AppleReceiptItem {
+  product_id?: string;
+  transaction_id?: string;
+  original_transaction_id?: string;
+  purchase_date_ms?: string;
+  expires_date_ms?: string;
+  cancellation_date_ms?: string;
+}
+
+interface AppleReceiptVerificationResponse {
+  status?: number;
+  environment?: string;
+  receipt?: {
+    bundle_id?: string;
+    in_app?: AppleReceiptItem[];
+  };
+  latest_receipt_info?: AppleReceiptItem[];
+}
+
 const APPLE_API_AUDIENCE = 'appstoreconnect-v1';
+const APPLE_VERIFY_RECEIPT_PRODUCTION_URL = 'https://buy.itunes.apple.com/verifyReceipt';
+const APPLE_VERIFY_RECEIPT_SANDBOX_URL = 'https://sandbox.itunes.apple.com/verifyReceipt';
 
 const createHttpError = (message: string, statusCode: number): Error & { statusCode: number } => {
   const error = new Error(message) as Error & { statusCode: number };
@@ -168,6 +189,37 @@ const fetchFromAppStoreConnect = async <T>(path: string): Promise<T> => {
   return (await response.json()) as T;
 };
 
+const fetchReceiptVerification = async (
+  receipt: string,
+  url: string
+): Promise<AppleReceiptVerificationResponse> => {
+  if (!config.apple.sharedSecret) {
+    throw createHttpError(
+      'Apple receipt verification is not configured. Missing APPLE_SHARED_SECRET',
+      400
+    );
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      'receipt-data': receipt,
+      password: config.apple.sharedSecret,
+      'exclude-old-transactions': true
+    })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw createHttpError(`Apple receipt verification request failed: ${body || response.statusText}`, response.status);
+  }
+
+  return (await response.json()) as AppleReceiptVerificationResponse;
+};
+
 interface AppleSubscriptionPricesResponse {
   data?: Array<{
     relationships?: {
@@ -239,6 +291,33 @@ const mapTransactionPayload = (payload: AppleTransactionPayload): AppleVerifiedS
   };
 };
 
+const mapReceiptItem = (
+  item: AppleReceiptItem,
+  environment?: string
+): AppleVerifiedSubscription => {
+  if (!item.product_id || !item.transaction_id || !item.expires_date_ms) {
+    throw createHttpError('Apple receipt response is missing required subscription fields', 400);
+  }
+
+  return {
+    productId: item.product_id,
+    transactionId: item.transaction_id,
+    originalTransactionId: item.original_transaction_id,
+    purchaseDate: item.purchase_date_ms ? new Date(Number(item.purchase_date_ms)) : undefined,
+    expiryDate: new Date(Number(item.expires_date_ms)),
+    revokedAt: item.cancellation_date_ms ? new Date(Number(item.cancellation_date_ms)) : undefined,
+    environment
+  };
+};
+
+const selectLatestReceiptItem = (items: AppleReceiptItem[]): AppleReceiptItem | undefined => {
+  return [...items].sort((left, right) => {
+    const leftExpiry = Number(left.expires_date_ms || 0);
+    const rightExpiry = Number(right.expires_date_ms || 0);
+    return rightExpiry - leftExpiry;
+  })[0];
+};
+
 export const verifyAppleTransaction = async (transactionId: string): Promise<AppleVerifiedSubscription> => {
   const response = await fetchFromApple<{ signedTransactionInfo?: string }>(
     `/inApps/v1/transactions/${encodeURIComponent(transactionId)}`
@@ -250,6 +329,38 @@ export const verifyAppleTransaction = async (transactionId: string): Promise<App
 
   const payload = decodeJwsPayload<AppleTransactionPayload>(response.signedTransactionInfo);
   return mapTransactionPayload(payload);
+};
+
+export const verifyAppleReceipt = async (receipt: string): Promise<AppleVerifiedSubscription> => {
+  const preferredUrl =
+    config.apple.environment === 'production' ? APPLE_VERIFY_RECEIPT_PRODUCTION_URL : APPLE_VERIFY_RECEIPT_SANDBOX_URL;
+  const fallbackUrl =
+    config.apple.environment === 'production' ? APPLE_VERIFY_RECEIPT_SANDBOX_URL : APPLE_VERIFY_RECEIPT_PRODUCTION_URL;
+
+  let verification = await fetchReceiptVerification(receipt, preferredUrl);
+
+  if (verification.status === 21007 || verification.status === 21008) {
+    verification = await fetchReceiptVerification(receipt, fallbackUrl);
+  }
+
+  if (verification.status !== 0) {
+    throw createHttpError(`Apple receipt verification failed with status ${verification.status}`, 400);
+  }
+
+  if (verification.receipt?.bundle_id && verification.receipt.bundle_id !== config.apple.bundleId) {
+    throw createHttpError('Apple receipt bundle id does not match configured bundle id', 400);
+  }
+
+  const receiptItems = verification.latest_receipt_info?.length
+    ? verification.latest_receipt_info
+    : verification.receipt?.in_app || [];
+  const latestItem = selectLatestReceiptItem(receiptItems);
+
+  if (!latestItem) {
+    throw createHttpError('Apple receipt does not contain a subscription purchase', 400);
+  }
+
+  return mapReceiptItem(latestItem, verification.environment);
 };
 
 export const parseAppleWebhookPayload = (

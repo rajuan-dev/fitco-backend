@@ -12,7 +12,24 @@ const quoteValidators = [
 ];
 
 const checkoutValidators = [...quoteValidators];
-const appleVerifyValidators = [body('transactionId').isString().notEmpty()];
+const appleVerifyValidators = [
+  body('transactionId')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .notEmpty(),
+  body('receipt')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .notEmpty(),
+  body().custom(value => {
+    if (!value?.transactionId && !value?.receipt) {
+      throw new Error('Either transactionId or receipt is required');
+    }
+    return true;
+  })
+];
 const googleVerifyValidators = [body('purchaseToken').isString().notEmpty()];
 
 export const listPlans = asyncHandler(async (_req: Request, res: Response) => {
@@ -60,9 +77,10 @@ export const verifyApplePurchase = [
   asyncHandler(async (req: Request, res: Response) => {
     const result = await subscriptionService.verifyAppleSubscription({
       userId: req.auth!.id,
-      transactionId: req.body.transactionId
+      transactionId: req.body.transactionId,
+      receipt: req.body.receipt
     });
-    res.json(result);
+    res.json({ success: true, ...result });
   })
 ];
 
