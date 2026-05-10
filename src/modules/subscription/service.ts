@@ -213,6 +213,68 @@ const getGooglePriceForPlan = async (planType: PlanType): Promise<GoogleCatalogP
   }
 };
 
+const getAppleSubscriptionIdForProduct = (productId: string): string | null => {
+  const monthlyIndex = config.apple.monthlyProductIds.indexOf(productId);
+  if (monthlyIndex >= 0) {
+    return config.apple.monthlySubscriptionIds[monthlyIndex] || config.apple.monthlySubscriptionIds[0] || null;
+  }
+
+  const yearlyIndex = config.apple.yearlyProductIds.indexOf(productId);
+  if (yearlyIndex >= 0) {
+    return config.apple.yearlySubscriptionIds[yearlyIndex] || config.apple.yearlySubscriptionIds[0] || null;
+  }
+
+  return null;
+};
+
+const getApplePriceForVerifiedSubscription = async ({
+  productId,
+  planType
+}: {
+  productId: string;
+  planType: PlanType;
+}): Promise<AppleCatalogPrice | null> => {
+  const subscriptionId = getAppleSubscriptionIdForProduct(productId);
+  if (subscriptionId) {
+    try {
+      return await getAppleSubscriptionPrice({
+        subscriptionId,
+        territory: config.apple.priceTerritory
+      });
+    } catch {
+      return getApplePriceForPlan(planType);
+    }
+  }
+
+  return getApplePriceForPlan(planType);
+};
+
+const getGooglePriceForVerifiedSubscription = async ({
+  productId,
+  basePlanId,
+  planType,
+  region
+}: {
+  productId: string;
+  basePlanId?: string;
+  planType: PlanType;
+  region?: string;
+}): Promise<GoogleCatalogPrice | null> => {
+  if (basePlanId) {
+    try {
+      return await getGoogleBasePlanPrice({
+        productId,
+        basePlanId,
+        region: region || config.google.priceRegion
+      });
+    } catch {
+      return getGooglePriceForPlan(planType);
+    }
+  }
+
+  return getGooglePriceForPlan(planType);
+};
+
 const calculateExpiryByPlan = (planType: PlanType): Date => {
   const now = new Date();
   if (planType === PLAN_TYPES.YEARLY) {
@@ -418,6 +480,45 @@ const syncUserSubscriptionStatus = async (userId: string): Promise<void> => {
   await UserModel.findByIdAndUpdate(userId, { subscriptionStatus: active ? 'premium' : 'free' });
 };
 
+const upsertExternalTransaction = async (params: {
+  userId: string;
+  platform: 'apple' | 'google';
+  planType: PlanType;
+  amount: number;
+  reference: string;
+  productId: string;
+  currency?: string;
+  meta?: Record<string, unknown>;
+}): Promise<void> => {
+  const existing = await TransactionModel.findOne({ reference: params.reference });
+  if (existing) {
+    existing.amount = params.amount;
+    existing.planType = params.planType;
+    existing.platform = params.platform;
+    existing.status = 'paid';
+    existing.productId = params.productId;
+    existing.currency = params.currency || existing.currency;
+    existing.meta = {
+      ...(existing.meta || {}),
+      ...(params.meta || {})
+    };
+    await existing.save();
+    return;
+  }
+
+  await TransactionModel.create({
+    user: params.userId,
+    amount: params.amount,
+    planType: params.planType,
+    platform: params.platform,
+    status: 'paid',
+    reference: params.reference,
+    productId: params.productId,
+    currency: params.currency,
+    meta: params.meta
+  });
+};
+
 const upsertLocalSubscription = async (params: {
   userId: string;
   planType: PlanType;
@@ -557,6 +658,7 @@ const handleCheckoutSessionCompleted = async (session: Stripe.Checkout.Session):
       user: user._id,
       amount: finalPrice,
       planType,
+      platform: 'stripe',
       status: 'paid',
       reference,
       couponCode,
@@ -623,6 +725,7 @@ const handleInvoicePaymentSucceeded = async (invoice: Stripe.Invoice): Promise<v
       user: localSubscription.user,
       amount: amountPaid,
       planType,
+      platform: 'stripe',
       status: 'paid',
       reference,
       stripeInvoiceId: invoice.id,
@@ -657,6 +760,7 @@ const handleInvoicePaymentFailed = async (invoice: Stripe.Invoice): Promise<void
       user: localSubscription.user,
       amount: centsToAmount(invoice.amount_due || 0),
       planType: localSubscription.planType,
+      platform: 'stripe',
       status: 'failed',
       reference,
       stripeInvoiceId: invoice.id,
@@ -834,6 +938,10 @@ const normalizeAppleSubscription = async (
   verified: AppleVerifiedSubscription
 ): Promise<NormalizedSubscriptionResult> => {
   const planType = resolvePlanTypeForProduct(verified.productId, 'apple');
+  const catalogPrice = await getApplePriceForVerifiedSubscription({
+    productId: verified.productId,
+    planType
+  });
   const subscription = await upsertExternalSubscription({
     userId,
     platform: 'apple',
@@ -849,6 +957,26 @@ const normalizeAppleSubscription = async (
       environment: verified.environment
     }
   });
+
+  if (subscription.isActive && catalogPrice?.amount) {
+    await upsertExternalTransaction({
+      userId,
+      platform: 'apple',
+      planType,
+      amount: catalogPrice.amount,
+      currency: catalogPrice.currency,
+      productId: verified.productId,
+      reference: `apple_tx_${verified.transactionId}`,
+      meta: {
+        transactionId: verified.transactionId,
+        originalTransactionId: verified.originalTransactionId,
+        territory: catalogPrice.territory,
+        purchaseDate: verified.purchaseDate?.toISOString(),
+        expiryDate: verified.expiryDate.toISOString(),
+        environment: verified.environment
+      }
+    });
+  }
 
   await syncUserSubscriptionStatus(userId);
 
@@ -884,6 +1012,12 @@ const normalizeGoogleSubscription = async (
     productId: verified.productId,
     basePlanId: verified.basePlanId
   });
+  const catalogPrice = await getGooglePriceForVerifiedSubscription({
+    productId: verified.productId,
+    basePlanId: verified.basePlanId,
+    planType,
+    region: verified.regionCode
+  });
   const subscription = await upsertExternalSubscription({
     userId,
     platform: 'google',
@@ -901,6 +1035,29 @@ const normalizeGoogleSubscription = async (
       regionCode: verified.regionCode
     }
   });
+
+  if (subscription.isActive && catalogPrice?.amount) {
+    await upsertExternalTransaction({
+      userId,
+      platform: 'google',
+      planType,
+      amount: catalogPrice.amount,
+      currency: catalogPrice.currency,
+      productId: verified.productId,
+      reference: verified.latestOrderId ? `google_order_${verified.latestOrderId}` : `google_purchase_${verified.purchaseToken}`,
+      meta: {
+        purchaseToken: verified.purchaseToken,
+        providerSubscriptionId: verified.providerSubscriptionId,
+        basePlanId: verified.basePlanId,
+        regionCode: verified.regionCode || catalogPrice.region,
+        subscriptionState: verified.subscriptionState,
+        autoRenewing: verified.autoRenewing,
+        latestOrderId: verified.latestOrderId,
+        startDate: verified.startDate?.toISOString(),
+        expiryDate: verified.expiryDate.toISOString()
+      }
+    });
+  }
 
   await syncUserSubscriptionStatus(userId);
 

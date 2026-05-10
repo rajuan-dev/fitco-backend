@@ -13,6 +13,7 @@ export interface AppConfig {
   env: string;
   port: number;
   mongoUri: string;
+  dnsServers: string[];
   jwt: JwtConfig;
   chat: {
     freeLimit: number;
@@ -56,6 +57,10 @@ const config: AppConfig = {
   env: process.env.NODE_ENV || '',
   port: Number(process.env.PORT || 5000),
   mongoUri: process.env.MONGO_URI || '',
+  dnsServers: (process.env.DNS_SERVERS || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean),
   jwt: {
     accessSecret: process.env.JWT_SECRET || 'changemeaccess',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'changemerefresh',
