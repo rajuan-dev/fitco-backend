@@ -23,6 +23,7 @@ import {
   parseGoogleWebhookPayload,
   verifyGooglePurchase
 } from './google.service';
+import { convertAmountToUsd } from '../../utils/currency';
 
 interface PaginationMeta {
   total: number;
@@ -298,6 +299,44 @@ const getAdminReportingPrice = async (planType: PlanType): Promise<GoogleCatalog
   };
 };
 
+const resolveUsdReportingPrice = async ({
+  customerPrice,
+  fallbackPrice
+}: {
+  customerPrice?: {
+    amount: number;
+    currency: string;
+  } | null;
+  fallbackPrice: {
+    amount: number;
+    currency: string;
+  };
+}): Promise<{ amount: number; currency: string }> => {
+  const priceToConvert = customerPrice || fallbackPrice;
+
+  try {
+    return {
+      amount: await convertAmountToUsd({
+        amount: priceToConvert.amount,
+        fromCurrency: priceToConvert.currency
+      }),
+      currency: 'USD'
+    };
+  } catch {
+    if (fallbackPrice.currency.toUpperCase() === 'USD') {
+      return {
+        amount: fallbackPrice.amount,
+        currency: 'USD'
+      };
+    }
+
+    return {
+      amount: priceToConvert.amount,
+      currency: priceToConvert.currency.toUpperCase()
+    };
+  }
+};
+
 const resolveGoogleTransactionPrices = async ({
   productId,
   basePlanId,
@@ -330,11 +369,16 @@ const resolveGoogleTransactionPrices = async ({
     }
   }
 
-  return {
-    reportingPrice: {
+  const reportingPriceInUsd = await resolveUsdReportingPrice({
+    customerPrice,
+    fallbackPrice: {
       amount: reportingPrice.amount,
       currency: reportingPrice.currency
-    },
+    }
+  });
+
+  return {
+    reportingPrice: reportingPriceInUsd,
     customerPrice: customerPrice
       ? {
           amount: customerPrice.amount,

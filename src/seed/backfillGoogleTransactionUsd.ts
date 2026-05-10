@@ -5,6 +5,7 @@ import SubscriptionPricingModel from '../modules/subscription/pricing.model';
 import TransactionModel from '../modules/subscription/transaction.model';
 import { getGoogleBasePlanPrice } from '../modules/subscription/google.service';
 import { PLAN_TYPES, PlanType } from '../utils/constants';
+import { convertAmountToUsd } from '../utils/currency';
 
 const resolvePlanType = (basePlanId?: string, productId?: string): PlanType | null => {
   if (basePlanId) {
@@ -42,6 +43,38 @@ const getAdminReportingPrice = async (planType: PlanType): Promise<{ amount: num
   };
 };
 
+const resolveReportingPrice = async ({
+  customerPrice,
+  fallbackPrice
+}: {
+  customerPrice?: { amount: number; currency: string } | null;
+  fallbackPrice: { amount: number; currency: string };
+}): Promise<{ amount: number; currency: string }> => {
+  const priceToConvert = customerPrice || fallbackPrice;
+
+  try {
+    return {
+      amount: await convertAmountToUsd({
+        amount: priceToConvert.amount,
+        fromCurrency: priceToConvert.currency
+      }),
+      currency: 'USD'
+    };
+  } catch {
+    if (fallbackPrice.currency.toUpperCase() === 'USD') {
+      return {
+        amount: fallbackPrice.amount,
+        currency: 'USD'
+      };
+    }
+
+    return {
+      amount: priceToConvert.amount,
+      currency: priceToConvert.currency.toUpperCase()
+    };
+  }
+};
+
 const run = async (): Promise<void> => {
   await connectDatabase();
 
@@ -65,7 +98,7 @@ const run = async (): Promise<void> => {
       continue;
     }
 
-    const reportingPrice =
+    const fallbackPrice =
       (await getGoogleBasePlanPrice({
         productId,
         basePlanId,
@@ -85,6 +118,14 @@ const run = async (): Promise<void> => {
       }
     }
 
+    const reportingPrice = await resolveReportingPrice({
+      customerPrice,
+      fallbackPrice: {
+        amount: fallbackPrice.amount,
+        currency: fallbackPrice.currency
+      }
+    });
+
     const existingOriginalAmount =
       typeof meta.originalAmount === 'number' ? meta.originalAmount : transaction.amount;
     const existingOriginalCurrency =
@@ -92,16 +133,32 @@ const run = async (): Promise<void> => {
         ? meta.originalCurrency
         : transaction.currency || customerPrice?.currency || reportingPrice.currency;
 
-    transaction.amount = reportingPrice.amount;
-    transaction.currency = reportingPrice.currency;
+    const effectiveCustomerPrice =
+      Number.isFinite(existingOriginalAmount) && typeof existingOriginalCurrency === 'string'
+        ? {
+            amount: existingOriginalAmount,
+            currency: existingOriginalCurrency
+          }
+        : customerPrice;
+
+    const normalizedReportingPrice = await resolveReportingPrice({
+      customerPrice: effectiveCustomerPrice,
+      fallbackPrice: {
+        amount: fallbackPrice.amount,
+        currency: fallbackPrice.currency
+      }
+    });
+
+    transaction.amount = normalizedReportingPrice.amount;
+    transaction.currency = normalizedReportingPrice.currency;
     transaction.planType = planType;
     transaction.meta = {
       ...meta,
       originalAmount: customerPrice?.amount ?? existingOriginalAmount,
       originalCurrency: customerPrice?.currency ?? existingOriginalCurrency,
       originalRegion: customerPrice?.region ?? regionCode ?? config.google.priceRegion,
-      reportingAmount: reportingPrice.amount,
-      reportingCurrency: reportingPrice.currency,
+      reportingAmount: normalizedReportingPrice.amount,
+      reportingCurrency: normalizedReportingPrice.currency,
       reportingRegion: config.google.priceRegion
     };
 
