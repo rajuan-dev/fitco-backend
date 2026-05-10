@@ -117,6 +117,18 @@ interface NormalizedSubscriptionResult {
   };
 }
 
+interface ExternalPriceResolution {
+  reportingPrice: {
+    amount: number;
+    currency: string;
+  };
+  customerPrice?: {
+    amount: number;
+    currency: string;
+    region?: string;
+  } | null;
+}
+
 const createHttpError = (message: string, statusCode: number): Error & { statusCode: number } => {
   const error = new Error(message) as Error & { statusCode: number };
   error.statusCode = statusCode;
@@ -273,6 +285,64 @@ const getGooglePriceForVerifiedSubscription = async ({
   }
 
   return getGooglePriceForPlan(planType);
+};
+
+const getAdminReportingPrice = async (planType: PlanType): Promise<GoogleCatalogPrice> => {
+  const pricing = await getPricingContext();
+  const amountCents = getPlanPriceCents(planType, pricing);
+
+  return {
+    amount: centsToAmount(amountCents),
+    currency: pricing.currency.toUpperCase(),
+    region: config.google.priceRegion
+  };
+};
+
+const resolveGoogleTransactionPrices = async ({
+  productId,
+  basePlanId,
+  planType,
+  region
+}: {
+  productId: string;
+  basePlanId?: string;
+  planType: PlanType;
+  region?: string;
+}): Promise<ExternalPriceResolution | null> => {
+  const reportingPrice =
+    (await getGooglePriceForVerifiedSubscription({
+      productId,
+      basePlanId,
+      planType,
+      region: config.google.priceRegion
+    })) || (await getAdminReportingPrice(planType));
+
+  let customerPrice: GoogleCatalogPrice | null = null;
+  if (basePlanId && region && region !== config.google.priceRegion) {
+    try {
+      customerPrice = await getGoogleBasePlanPrice({
+        productId,
+        basePlanId,
+        region
+      });
+    } catch {
+      customerPrice = null;
+    }
+  }
+
+  return {
+    reportingPrice: {
+      amount: reportingPrice.amount,
+      currency: reportingPrice.currency
+    },
+    customerPrice: customerPrice
+      ? {
+          amount: customerPrice.amount,
+          currency: customerPrice.currency,
+          region: customerPrice.region
+        }
+      : null
+  };
 };
 
 const calculateExpiryByPlan = (planType: PlanType): Date => {
@@ -1012,7 +1082,7 @@ const normalizeGoogleSubscription = async (
     productId: verified.productId,
     basePlanId: verified.basePlanId
   });
-  const catalogPrice = await getGooglePriceForVerifiedSubscription({
+  const priceResolution = await resolveGoogleTransactionPrices({
     productId: verified.productId,
     basePlanId: verified.basePlanId,
     planType,
@@ -1036,20 +1106,26 @@ const normalizeGoogleSubscription = async (
     }
   });
 
-  if (subscription.isActive && catalogPrice?.amount) {
+  if (subscription.isActive && priceResolution?.reportingPrice.amount) {
     await upsertExternalTransaction({
       userId,
       platform: 'google',
       planType,
-      amount: catalogPrice.amount,
-      currency: catalogPrice.currency,
+      amount: priceResolution.reportingPrice.amount,
+      currency: priceResolution.reportingPrice.currency,
       productId: verified.productId,
       reference: verified.latestOrderId ? `google_order_${verified.latestOrderId}` : `google_purchase_${verified.purchaseToken}`,
       meta: {
+        originalAmount: priceResolution.customerPrice?.amount ?? priceResolution.reportingPrice.amount,
+        originalCurrency: priceResolution.customerPrice?.currency ?? priceResolution.reportingPrice.currency,
+        originalRegion: priceResolution.customerPrice?.region ?? verified.regionCode ?? config.google.priceRegion,
+        reportingAmount: priceResolution.reportingPrice.amount,
+        reportingCurrency: priceResolution.reportingPrice.currency,
+        reportingRegion: config.google.priceRegion,
         purchaseToken: verified.purchaseToken,
         providerSubscriptionId: verified.providerSubscriptionId,
         basePlanId: verified.basePlanId,
-        regionCode: verified.regionCode || catalogPrice.region,
+        regionCode: verified.regionCode || priceResolution.customerPrice?.region || config.google.priceRegion,
         subscriptionState: verified.subscriptionState,
         autoRenewing: verified.autoRenewing,
         latestOrderId: verified.latestOrderId,
