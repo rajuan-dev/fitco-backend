@@ -5,6 +5,7 @@ import UserModel, { UserDocument } from '../user/model';
 import * as subscriptionService from '../subscription/service';
 import FoodLogModel from '../foodLog/model';
 import { getWeeklySummary, WeeklySummaryResponse } from '../foodLog/service';
+import { createHttpError, isAppError } from '../../utils/httpError';
 
 interface ChatResponse {
   answer: string;
@@ -265,9 +266,7 @@ const getNutritionContext = async (userId: string, user: UserDocument): Promise<
 export const getChatLimitStatus = async (userId: string): Promise<ChatLimitStatus> => {
   const user = await UserModel.findById(userId);
   if (!user) {
-    const error = new Error('User not found');
-    (error as any).statusCode = 404;
-    throw error;
+    throw createHttpError('User not found', 404, { code: 'USER_NOT_FOUND' });
   }
 
   const activeSubscription = await subscriptionService.getUserActiveSubscription(userId);
@@ -299,71 +298,145 @@ export const getChatLimitStatus = async (userId: string): Promise<ChatLimitStatu
 };
 
 export const sendMessage = async (userId: string, prompt: string): Promise<ChatResponse> => {
+  const startedAt = Date.now();
+
   if (!process.env.OPENAI_API_KEY) {
-    const error = new Error('OpenAI API key missing');
-    (error as any).statusCode = 500;
-    throw error;
+    throw createHttpError('OpenAI API key missing', 500, {
+      code: 'FITBOT_CONFIGURATION_ERROR',
+      expose: false
+    });
   }
-  const user = await UserModel.findById(userId);
-  if (!user) {
-    const error = new Error('User not found');
-    (error as any).statusCode = 404;
-    throw error;
-  }
-
-  const activeSubscription = await subscriptionService.getUserActiveSubscription(userId);
-  const isPremium = Boolean(activeSubscription);
-  await UserModel.findByIdAndUpdate(userId, { subscriptionStatus: isPremium ? 'premium' : 'free' });
-  const nutritionContext = await getNutritionContext(userId, user);
-
-  const now = new Date();
-
-  if (!isPremium) {
-    const { start: startOfDay } = getDayWindowUTC(now);
-    const messagesToday = await ChatModel.countDocuments({ user: userId, createdAt: { $gte: startOfDay } });
-    if (messagesToday >= config.chat.freeLimit) {
-      const error = new Error(
-        `Daily chat limit reached. Free users can send ${config.chat.freeLimit} messages per day. Upgrade to premium for ${config.chat.paidMonthlyLimit} messages per month.`
-      );
-      (error as any).statusCode = 403;
-      throw error;
+  try {
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      throw createHttpError('User not found', 404, { code: 'USER_NOT_FOUND' });
     }
-  } else {
-    const { start: startOfMonth } = getMonthWindowUTC(now);
-    const messagesThisMonth = await ChatModel.countDocuments({ user: userId, createdAt: { $gte: startOfMonth } });
-    if (messagesThisMonth >= config.chat.paidMonthlyLimit) {
-      const error = new Error(`Monthly premium chat limit reached (${config.chat.paidMonthlyLimit} messages).`);
-      (error as any).statusCode = 403;
-      throw error;
-    }
-  }
 
-  const systemPrompt = `You are Creedtng, an AI fitness coach. Personalize guidance using this profile: Name: ${user.name}. Height: ${user.height ?? 'N/A'}. Weight: ${user.currentWeight ?? user.weight ?? 'N/A'}. Goals: ${user.goal ?? user.goals ?? 'N/A'}. Subscription: ${isPremium ? 'Premium' : 'Free'}.
+    const activeSubscription = await subscriptionService.getUserActiveSubscription(userId);
+    const isPremium = Boolean(activeSubscription);
+    await UserModel.findByIdAndUpdate(userId, { subscriptionStatus: isPremium ? 'premium' : 'free' });
+    const nutritionContext = await getNutritionContext(userId, user);
+
+    const now = new Date();
+
+    if (!isPremium) {
+      const { start: startOfDay } = getDayWindowUTC(now);
+      const messagesToday = await ChatModel.countDocuments({ user: userId, createdAt: { $gte: startOfDay } });
+      if (messagesToday >= config.chat.freeLimit) {
+        throw createHttpError(
+          `Daily chat limit reached. Free users can send ${config.chat.freeLimit} messages per day. Upgrade to premium for ${config.chat.paidMonthlyLimit} messages per month.`,
+          403,
+          {
+            code: 'CHAT_DAILY_LIMIT_REACHED',
+            details: {
+              limit: config.chat.freeLimit,
+              messagesToday
+            }
+          }
+        );
+      }
+    } else {
+      const { start: startOfMonth } = getMonthWindowUTC(now);
+      const messagesThisMonth = await ChatModel.countDocuments({ user: userId, createdAt: { $gte: startOfMonth } });
+      if (messagesThisMonth >= config.chat.paidMonthlyLimit) {
+        throw createHttpError(`Monthly premium chat limit reached (${config.chat.paidMonthlyLimit} messages).`, 403, {
+          code: 'CHAT_MONTHLY_LIMIT_REACHED',
+          details: {
+            limit: config.chat.paidMonthlyLimit,
+            messagesThisMonth
+          }
+        });
+      }
+    }
+
+    const systemPrompt = `You are Creedtng, an AI fitness coach. Personalize guidance using this profile: Name: ${user.name}. Height: ${user.height ?? 'N/A'}. Weight: ${user.currentWeight ?? user.weight ?? 'N/A'}. Goals: ${user.goal ?? user.goals ?? 'N/A'}. Subscription: ${isPremium ? 'Premium' : 'Free'}.
 Use this live nutrition context from database for factual answers:
 ${JSON.stringify(nutritionContext)}
 If data is missing, say it clearly and avoid guessing. Provide actionable, safe fitness and nutrition advice.`;
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: prompt }
-    ]
-  });
+    const completion = await openai.chat.completions.create(
+      {
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ]
+      },
+      {
+        timeout: 20000
+      }
+    );
 
-  const answer = completion.choices[0].message?.content || 'I am unable to respond right now.';
+    const answer = completion.choices[0].message?.content || 'I am unable to respond right now.';
 
-  const record = await ChatModel.create({
-    user: userId,
-    prompt,
-    response: answer,
-    metadata: {
-      subscription: isPremium ? 'premium' : 'free',
-      nutritionContext
+    const record = await ChatModel.create({
+      user: userId,
+      prompt,
+      response: answer,
+      metadata: {
+        subscription: isPremium ? 'premium' : 'free',
+        nutritionContext
+      }
+    });
+
+    console.info('[FITBOT_SUCCESS]', {
+      userId,
+      durationMs: Date.now() - startedAt,
+      subscription: isPremium ? 'premium' : 'free'
+    });
+
+    return { answer, record };
+  } catch (error) {
+    console.error('[FITBOT_FAILURE]', {
+      userId,
+      durationMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorMessage: error instanceof Error ? error.message : 'Unknown error'
+    });
+
+    if (isAppError(error)) {
+      throw error;
     }
-  });
 
-  return { answer, record };
+    const status = typeof (error as { status?: unknown })?.status === 'number' ? Number((error as { status: number }).status) : 500;
+    const code = typeof (error as { code?: unknown })?.code === 'string' ? String((error as { code?: string }).code) : undefined;
+    const name = error instanceof Error ? error.name : '';
+    const message = error instanceof Error ? error.message : 'Unknown FitBot failure';
+
+    if (status === 429 || code === 'rate_limit_exceeded') {
+      throw createHttpError('FitBot is busy right now. Please try again in a moment.', 503, {
+        code: 'FITBOT_UPSTREAM_RATE_LIMITED',
+        details: { upstreamStatus: status, upstreamCode: code }
+      });
+    }
+
+    if (status === 401 || status === 403) {
+      throw createHttpError('FitBot is temporarily unavailable due to an upstream authorization issue.', 503, {
+        code: 'FITBOT_UPSTREAM_AUTH_ERROR',
+        details: { upstreamStatus: status, upstreamCode: code },
+        expose: false
+      });
+    }
+
+    if (status >= 500) {
+      throw createHttpError('FitBot is temporarily unavailable. Please try again shortly.', 503, {
+        code: 'FITBOT_UPSTREAM_ERROR',
+        details: { upstreamStatus: status, upstreamCode: code }
+      });
+    }
+
+    if (name === 'AbortError' || /timeout/i.test(message)) {
+      throw createHttpError('FitBot took too long to respond. Please try again.', 504, {
+        code: 'FITBOT_TIMEOUT'
+      });
+    }
+
+    throw createHttpError('FitBot could not process this request right now.', 500, {
+      code: 'FITBOT_INTERNAL_ERROR',
+      details: { originalMessage: message },
+      expose: false
+    });
+  }
 };
 
 export const getHistory = (userId: string): Promise<ChatDocument[]> => {

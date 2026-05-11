@@ -10,7 +10,11 @@ const authenticate = async (req: Request, res: Response, next: NextFunction): Pr
   try {
     const authHeader = req.headers.authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Authentication required' });
+      return res.status(401).json({
+        message: 'Authentication required',
+        code: 'AUTH_REQUIRED',
+        requestId: req.requestId
+      });
     }
 
     const token = authHeader.replace('Bearer ', '');
@@ -21,11 +25,19 @@ const authenticate = async (req: Request, res: Response, next: NextFunction): Pr
         : await UserModel.findById(decoded.sub);
 
     if (!account) {
-      return res.status(401).json({ message: 'Account not found' });
+      return res.status(401).json({
+        message: 'Account not found',
+        code: 'ACCOUNT_NOT_FOUND',
+        requestId: req.requestId
+      });
     }
 
     if (decoded.role === 'user' && (account as any).isBlocked) {
-      return res.status(403).json({ message: 'Account is blocked' });
+      return res.status(403).json({
+        message: 'Account is blocked',
+        code: 'ACCOUNT_BLOCKED',
+        requestId: req.requestId
+      });
     }
 
     req.auth = {
@@ -37,14 +49,22 @@ const authenticate = async (req: Request, res: Response, next: NextFunction): Pr
     req.account = account;
     next();
   } catch (error) {
-    return res.status(401).json({ message: 'Invalid or expired token' });
+    return res.status(401).json({
+      message: 'Invalid or expired token',
+      code: 'AUTH_INVALID_TOKEN',
+      requestId: req.requestId
+    });
   }
 };
 
 const authorizeRoles = (...roles: Role[]) => {
   return (req: Request, res: Response, next: NextFunction): Response | void => {
     if (!req.auth || !roles.includes(req.auth.role as Role)) {
-      return res.status(403).json({ message: 'Forbidden' });
+      return res.status(403).json({
+        message: 'Forbidden',
+        code: 'AUTH_FORBIDDEN',
+        requestId: req.requestId
+      });
     }
     next();
   };

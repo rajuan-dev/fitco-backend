@@ -8,6 +8,7 @@ type AdminDoc = Document & InstanceType<typeof AdminModel>;
 declare global {
   namespace Express {
     interface Request {
+      requestId?: string;
       auth?: {
         id: string;
         role: string;

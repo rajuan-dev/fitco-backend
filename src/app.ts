@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
+import crypto from 'crypto';
 import config from './config';
 import { notFound, errorHandler } from './middlewares/errorMiddleware';
 
@@ -29,6 +30,17 @@ app.post(`${API_PREFIX}/subscriptions/webhook`, express.raw({ type: 'application
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use((req, res, next) => {
+  const incomingRequestId = req.headers['x-request-id'];
+  const requestId =
+    typeof incomingRequestId === 'string' && incomingRequestId.trim()
+      ? incomingRequestId.trim()
+      : crypto.randomUUID();
+
+  req.requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  next();
+});
 app.use(morgan(config.env === 'development' ? 'dev' : 'combined'));
 
 app.get(`${API_PREFIX}/health`, (req, res) => {
