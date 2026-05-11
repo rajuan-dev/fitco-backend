@@ -4,7 +4,7 @@ import asyncHandler from '../../utils/asyncHandler';
 import * as chatService from './service';
 import validate from '../../middlewares/validationMiddleware';
 
-const messageValidators = [body('message').isLength({ min: 5 })];
+const messageValidators = [body('message').isString().trim().isLength({ min: 1 })];
 
 export const sendMessage = [
   ...messageValidators,
