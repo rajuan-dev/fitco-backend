@@ -64,7 +64,7 @@ const config: AppConfig = {
   jwt: {
     accessSecret: process.env.JWT_SECRET || 'changemeaccess',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'changemerefresh',
-    accessExpiresIn: '30d',
+    accessExpiresIn: '365d',
     refreshExpiresIn: '30d'
   },
   chat: {
