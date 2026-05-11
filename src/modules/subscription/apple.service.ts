@@ -58,6 +58,7 @@ interface AppleReceiptVerificationResponse {
 const APPLE_API_AUDIENCE = 'appstoreconnect-v1';
 const APPLE_VERIFY_RECEIPT_PRODUCTION_URL = 'https://buy.itunes.apple.com/verifyReceipt';
 const APPLE_VERIFY_RECEIPT_SANDBOX_URL = 'https://sandbox.itunes.apple.com/verifyReceipt';
+const APPLE_TRANSACTION_NOT_FOUND_CODE = 4040010;
 
 const createHttpError = (message: string, statusCode: number): Error & { statusCode: number } => {
   const error = new Error(message) as Error & { statusCode: number };
@@ -147,16 +148,28 @@ const createStoreKitToken = (): string => {
   return `${unsignedToken}.${toBase64Url(signature)}`;
 };
 
-const getAppleBaseUrl = (): string => {
-  return config.apple.environment === 'production'
+const getAppleBaseUrl = (environment: 'sandbox' | 'production' = config.apple.environment): string => {
+  return environment === 'production'
     ? 'https://api.storekit.itunes.apple.com'
     : 'https://api.storekit-sandbox.itunes.apple.com';
 };
 
-const fetchFromApple = async <T>(path: string): Promise<T> => {
+const parseAppleApiErrorCode = (body: string): number | null => {
+  try {
+    const parsed = JSON.parse(body) as { errorCode?: unknown };
+    return typeof parsed.errorCode === 'number' ? parsed.errorCode : null;
+  } catch {
+    return null;
+  }
+};
+
+const fetchFromApple = async <T>(
+  path: string,
+  environment: 'sandbox' | 'production' = config.apple.environment
+): Promise<T> => {
   ensureAppleConfigured();
 
-  const response = await fetch(`${getAppleBaseUrl()}${path}`, {
+  const response = await fetch(`${getAppleBaseUrl(environment)}${path}`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${createStoreKitToken()}`
@@ -319,9 +332,25 @@ const selectLatestReceiptItem = (items: AppleReceiptItem[]): AppleReceiptItem | 
 };
 
 export const verifyAppleTransaction = async (transactionId: string): Promise<AppleVerifiedSubscription> => {
-  const response = await fetchFromApple<{ signedTransactionInfo?: string }>(
-    `/inApps/v1/transactions/${encodeURIComponent(transactionId)}`
-  );
+  const path = `/inApps/v1/transactions/${encodeURIComponent(transactionId)}`;
+  const preferredEnvironment = config.apple.environment;
+  const fallbackEnvironment = preferredEnvironment === 'production' ? 'sandbox' : 'production';
+  let response: { signedTransactionInfo?: string };
+
+  try {
+    response = await fetchFromApple<{ signedTransactionInfo?: string }>(path, preferredEnvironment);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const shouldRetryInOtherEnvironment =
+      message.includes(`"errorCode":${APPLE_TRANSACTION_NOT_FOUND_CODE}`) ||
+      parseAppleApiErrorCode(message.replace(/^Apple verification failed:\s*/, '')) === APPLE_TRANSACTION_NOT_FOUND_CODE;
+
+    if (!shouldRetryInOtherEnvironment) {
+      throw error;
+    }
+
+    response = await fetchFromApple<{ signedTransactionInfo?: string }>(path, fallbackEnvironment);
+  }
 
   if (!response.signedTransactionInfo) {
     throw createHttpError('Apple transaction verification response is missing signed transaction info', 400);
