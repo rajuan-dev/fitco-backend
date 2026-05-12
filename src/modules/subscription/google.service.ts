@@ -12,6 +12,10 @@ export interface GoogleVerifiedSubscription {
   subscriptionState: string;
   latestOrderId?: string;
   regionCode?: string;
+  recurringPrice?: {
+    amount: number;
+    currency: string;
+  };
 }
 
 export interface GoogleCatalogPrice {
@@ -24,7 +28,10 @@ interface GoogleLineItem {
   productId?: string;
   expiryTime?: string;
   latestSuccessfulOrderId?: string;
-  autoRenewingPlan?: Record<string, unknown>;
+  autoRenewingPlan?: {
+    recurringPrice?: GoogleMonetizationMoney;
+    [key: string]: unknown;
+  };
   offerDetails?: {
     basePlanId?: string;
   };
@@ -144,7 +151,14 @@ const mapGoogleSubscription = (
     autoRenewing: Boolean(lineItem.autoRenewingPlan),
     subscriptionState: payload.subscriptionState || 'SUBSCRIPTION_STATE_UNSPECIFIED',
     latestOrderId: payload.latestOrderId || lineItem.latestSuccessfulOrderId,
-    regionCode: payload.regionCode
+    regionCode: payload.regionCode,
+    recurringPrice:
+      moneyToAmount(lineItem.autoRenewingPlan?.recurringPrice) !== null && lineItem.autoRenewingPlan?.recurringPrice?.currencyCode
+        ? {
+            amount: moneyToAmount(lineItem.autoRenewingPlan?.recurringPrice) as number,
+            currency: lineItem.autoRenewingPlan.recurringPrice.currencyCode
+          }
+        : undefined
   };
 };
 

@@ -9,6 +9,9 @@ export interface AppleVerifiedSubscription {
   expiryDate: Date;
   revokedAt?: Date;
   environment?: string;
+  price?: number;
+  currency?: string;
+  storefront?: string;
 }
 
 export interface AppleCatalogPrice {
@@ -25,6 +28,9 @@ interface AppleTransactionPayload {
   expiresDate?: number;
   revocationDate?: number;
   environment?: string;
+  price?: number;
+  currency?: string;
+  storefront?: string;
 }
 
 interface AppleNotificationPayload {
@@ -300,7 +306,13 @@ const mapTransactionPayload = (payload: AppleTransactionPayload): AppleVerifiedS
     purchaseDate: payload.purchaseDate ? new Date(payload.purchaseDate) : undefined,
     expiryDate: new Date(payload.expiresDate),
     revokedAt: payload.revocationDate ? new Date(payload.revocationDate) : undefined,
-    environment: payload.environment
+    environment: payload.environment,
+    price:
+      typeof payload.price === 'number' && Number.isFinite(payload.price)
+        ? Number((payload.price / 1000).toFixed(2))
+        : undefined,
+    currency: typeof payload.currency === 'string' ? payload.currency : undefined,
+    storefront: typeof payload.storefront === 'string' ? payload.storefront : undefined
   };
 };
 

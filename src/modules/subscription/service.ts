@@ -100,6 +100,12 @@ interface PricingSettingsResponse {
   updatedAt: Date;
 }
 
+interface StoreReportedPrice {
+  amount: number;
+  currency: string;
+  region?: string;
+}
+
 type ManualSubscriptionStatus = 'paid' | 'free';
 type SubscriptionPlatform = 'stripe' | 'apple' | 'google';
 
@@ -341,12 +347,14 @@ const resolveGoogleTransactionPrices = async ({
   productId,
   basePlanId,
   planType,
-  region
+  region,
+  preferredCustomerPrice
 }: {
   productId: string;
   basePlanId?: string;
   planType: PlanType;
   region?: string;
+  preferredCustomerPrice?: StoreReportedPrice | null;
 }): Promise<ExternalPriceResolution | null> => {
   const reportingPrice =
     (await getGooglePriceForVerifiedSubscription({
@@ -357,7 +365,7 @@ const resolveGoogleTransactionPrices = async ({
     })) || (await getAdminReportingPrice(planType));
 
   let customerPrice: GoogleCatalogPrice | null = null;
-  if (basePlanId && region && region !== config.google.priceRegion) {
+  if (!preferredCustomerPrice && basePlanId && region && region !== config.google.priceRegion) {
     try {
       customerPrice = await getGoogleBasePlanPrice({
         productId,
@@ -370,7 +378,7 @@ const resolveGoogleTransactionPrices = async ({
   }
 
   const reportingPriceInSar = await resolveSarReportingPrice({
-    customerPrice,
+    customerPrice: preferredCustomerPrice || customerPrice,
     fallbackPrice: {
       amount: reportingPrice.amount,
       currency: reportingPrice.currency
@@ -379,13 +387,40 @@ const resolveGoogleTransactionPrices = async ({
 
   return {
     reportingPrice: reportingPriceInSar,
-    customerPrice: customerPrice
+    customerPrice: preferredCustomerPrice
+      ? {
+          amount: preferredCustomerPrice.amount,
+          currency: preferredCustomerPrice.currency,
+          region: preferredCustomerPrice.region || region || config.google.priceRegion
+        }
+      : customerPrice
       ? {
           amount: customerPrice.amount,
           currency: customerPrice.currency,
           region: customerPrice.region
         }
       : null
+  };
+};
+
+const normalizeStoreReportedPrice = (
+  amount?: number,
+  currency?: string | null,
+  region?: string
+): StoreReportedPrice | null => {
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+  if (!normalizedCurrency) {
+    return null;
+  }
+
+  return {
+    amount: Number((amount as number).toFixed(2)),
+    currency: normalizedCurrency,
+    ...(region ? { region } : {})
   };
 };
 
@@ -1127,6 +1162,7 @@ const normalizeAppleSubscription = async (
   verified: AppleVerifiedSubscription
 ): Promise<NormalizedSubscriptionResult> => {
   const planType = resolvePlanTypeForProduct(verified.productId, 'apple');
+  const storePrice = normalizeStoreReportedPrice(verified.price, verified.currency, verified.storefront);
   const catalogPrice = await getApplePriceForVerifiedSubscription({
     productId: verified.productId,
     planType
@@ -1147,22 +1183,30 @@ const normalizeAppleSubscription = async (
     }
   });
 
-  if (subscription.isActive && catalogPrice?.amount) {
+  const selectedPrice = storePrice || catalogPrice;
+
+  if (subscription.isActive && selectedPrice?.amount) {
     await upsertExternalTransaction({
       userId,
       platform: 'apple',
       planType,
-      amount: catalogPrice.amount,
-      currency: catalogPrice.currency,
+      amount: selectedPrice.amount,
+      currency: selectedPrice.currency,
       productId: verified.productId,
       reference: `apple_tx_${verified.transactionId}`,
       meta: {
+        originalAmount: selectedPrice.amount,
+        originalCurrency: selectedPrice.currency,
+        reportingAmount: selectedPrice.currency === REPORTING_CURRENCY ? selectedPrice.amount : undefined,
+        reportingCurrency: selectedPrice.currency === REPORTING_CURRENCY ? REPORTING_CURRENCY : undefined,
         transactionId: verified.transactionId,
         originalTransactionId: verified.originalTransactionId,
-        territory: catalogPrice.territory,
+        territory: catalogPrice?.territory,
+        storefront: verified.storefront,
         purchaseDate: verified.purchaseDate?.toISOString(),
         expiryDate: verified.expiryDate.toISOString(),
-        environment: verified.environment
+        environment: verified.environment,
+        priceSource: storePrice ? 'apple_transaction' : 'apple_catalog'
       }
     });
   }
@@ -1201,11 +1245,17 @@ const normalizeGoogleSubscription = async (
     productId: verified.productId,
     basePlanId: verified.basePlanId
   });
+  const storePrice = normalizeStoreReportedPrice(
+    verified.recurringPrice?.amount,
+    verified.recurringPrice?.currency,
+    verified.regionCode
+  );
   const priceResolution = await resolveGoogleTransactionPrices({
     productId: verified.productId,
     basePlanId: verified.basePlanId,
     planType,
-    region: verified.regionCode
+    region: verified.regionCode,
+    preferredCustomerPrice: storePrice
   });
   const subscription = await upsertExternalSubscription({
     userId,
@@ -1235,9 +1285,12 @@ const normalizeGoogleSubscription = async (
       productId: verified.productId,
       reference: verified.latestOrderId ? `google_order_${verified.latestOrderId}` : `google_purchase_${verified.purchaseToken}`,
       meta: {
-        originalAmount: priceResolution.customerPrice?.amount ?? priceResolution.reportingPrice.amount,
-        originalCurrency: priceResolution.customerPrice?.currency ?? priceResolution.reportingPrice.currency,
-        originalRegion: priceResolution.customerPrice?.region ?? verified.regionCode ?? config.google.priceRegion,
+        originalAmount:
+          storePrice?.amount ?? priceResolution.customerPrice?.amount ?? priceResolution.reportingPrice.amount,
+        originalCurrency:
+          storePrice?.currency ?? priceResolution.customerPrice?.currency ?? priceResolution.reportingPrice.currency,
+        originalRegion:
+          storePrice?.region ?? priceResolution.customerPrice?.region ?? verified.regionCode ?? config.google.priceRegion,
         reportingAmount: priceResolution.reportingPrice.amount,
         reportingCurrency: priceResolution.reportingPrice.currency,
         reportingRegion: config.google.priceRegion,
@@ -1249,7 +1302,8 @@ const normalizeGoogleSubscription = async (
         autoRenewing: verified.autoRenewing,
         latestOrderId: verified.latestOrderId,
         startDate: verified.startDate?.toISOString(),
-        expiryDate: verified.expiryDate.toISOString()
+        expiryDate: verified.expiryDate.toISOString(),
+        priceSource: storePrice ? 'google_transaction' : priceResolution.customerPrice ? 'google_region_catalog' : 'google_fallback'
       }
     });
   }
