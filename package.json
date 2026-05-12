@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "import:food-csv": "ts-node src/seed/importFoodDatabaseCsv.ts",
     "report:food-csv": "ts-node src/seed/generateFoodCsvReport.ts",
-    "backfill:google-transactions-usd": "ts-node src/seed/backfillGoogleTransactionUsd.ts"
+    "backfill:google-transactions-usd": "ts-node src/seed/backfillGoogleTransactionUsd.ts",
+    "backfill:transactions-sar": "ts-node src/seed/backfillTransactionReportingSar.ts"
   },
   "keywords": [],
   "author": "",

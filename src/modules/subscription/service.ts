@@ -23,7 +23,7 @@ import {
   parseGoogleWebhookPayload,
   verifyGooglePurchase
 } from './google.service';
-import { convertAmountToUsd } from '../../utils/currency';
+import { convertAmountToSar, normalizeCurrencyCode, REPORTING_CURRENCY } from '../../utils/currency';
 
 interface PaginationMeta {
   total: number;
@@ -299,7 +299,7 @@ const getAdminReportingPrice = async (planType: PlanType): Promise<GoogleCatalog
   };
 };
 
-const resolveUsdReportingPrice = async ({
+const resolveSarReportingPrice = async ({
   customerPrice,
   fallbackPrice
 }: {
@@ -316,17 +316,17 @@ const resolveUsdReportingPrice = async ({
 
   try {
     return {
-      amount: await convertAmountToUsd({
+      amount: await convertAmountToSar({
         amount: priceToConvert.amount,
         fromCurrency: priceToConvert.currency
       }),
-      currency: 'USD'
+      currency: REPORTING_CURRENCY
     };
   } catch {
-    if (fallbackPrice.currency.toUpperCase() === 'USD') {
+    if (normalizeCurrencyCode(fallbackPrice.currency) === REPORTING_CURRENCY) {
       return {
         amount: fallbackPrice.amount,
-        currency: 'USD'
+        currency: REPORTING_CURRENCY
       };
     }
 
@@ -369,7 +369,7 @@ const resolveGoogleTransactionPrices = async ({
     }
   }
 
-  const reportingPriceInUsd = await resolveUsdReportingPrice({
+  const reportingPriceInSar = await resolveSarReportingPrice({
     customerPrice,
     fallbackPrice: {
       amount: reportingPrice.amount,
@@ -378,7 +378,7 @@ const resolveGoogleTransactionPrices = async ({
   });
 
   return {
-    reportingPrice: reportingPriceInUsd,
+    reportingPrice: reportingPriceInSar,
     customerPrice: customerPrice
       ? {
           amount: customerPrice.amount,
@@ -604,6 +604,45 @@ const upsertExternalTransaction = async (params: {
   currency?: string;
   meta?: Record<string, unknown>;
 }): Promise<void> => {
+  const normalizedCurrency = normalizeCurrencyCode(params.currency);
+  const originalAmount =
+    typeof params.meta?.originalAmount === 'number' && Number.isFinite(params.meta.originalAmount)
+      ? params.meta.originalAmount
+      : params.amount;
+  const originalCurrency =
+    normalizeCurrencyCode(
+      typeof params.meta?.originalCurrency === 'string' ? params.meta.originalCurrency : normalizedCurrency
+    ) || normalizedCurrency;
+
+  let reportingAmount =
+    typeof params.meta?.reportingAmount === 'number' && Number.isFinite(params.meta.reportingAmount)
+      ? params.meta.reportingAmount
+      : null;
+  let reportingCurrency = normalizeCurrencyCode(
+    typeof params.meta?.reportingCurrency === 'string' ? params.meta.reportingCurrency : undefined
+  );
+
+  if (reportingAmount === null && originalCurrency) {
+    try {
+      reportingAmount = await convertAmountToSar({
+        amount: originalAmount,
+        fromCurrency: originalCurrency
+      });
+      reportingCurrency = REPORTING_CURRENCY;
+    } catch {
+      reportingAmount = normalizeCurrencyCode(originalCurrency) === REPORTING_CURRENCY ? originalAmount : null;
+      reportingCurrency = reportingAmount !== null ? REPORTING_CURRENCY : null;
+    }
+  }
+
+  const normalizedMeta = stripNilValues({
+    ...(params.meta || {}),
+    originalAmount: Number.isFinite(originalAmount) ? originalAmount : undefined,
+    originalCurrency: originalCurrency || undefined,
+    reportingAmount: reportingAmount ?? undefined,
+    reportingCurrency: reportingCurrency || undefined
+  });
+
   const existing = await TransactionModel.findOne({ reference: params.reference });
   if (existing) {
     existing.amount = params.amount;
@@ -611,10 +650,10 @@ const upsertExternalTransaction = async (params: {
     existing.platform = params.platform;
     existing.status = 'paid';
     existing.productId = params.productId;
-    existing.currency = params.currency || existing.currency;
+    existing.currency = normalizedCurrency || existing.currency;
     existing.meta = {
       ...(existing.meta || {}),
-      ...(params.meta || {})
+      ...normalizedMeta
     };
     await existing.save();
     return;
@@ -628,8 +667,8 @@ const upsertExternalTransaction = async (params: {
     status: 'paid',
     reference: params.reference,
     productId: params.productId,
-    currency: params.currency,
-    meta: params.meta
+    currency: normalizedCurrency || undefined,
+    meta: normalizedMeta
   });
 };
 
@@ -768,6 +807,19 @@ const handleCheckoutSessionCompleted = async (session: Stripe.Checkout.Session):
   const reference = `stripe_cs_${session.id}`;
   const existing = await TransactionModel.findOne({ reference });
   if (!existing) {
+    const stripeCurrency = normalizeCurrencyCode(session.currency || config.stripe.currency);
+    let reportingAmount: number | undefined;
+    if (stripeCurrency) {
+      try {
+        reportingAmount = await convertAmountToSar({
+          amount: finalPrice,
+          fromCurrency: stripeCurrency
+        });
+      } catch {
+        reportingAmount = stripeCurrency === REPORTING_CURRENCY ? finalPrice : undefined;
+      }
+    }
+
     await TransactionModel.create({
       user: user._id,
       amount: finalPrice,
@@ -776,10 +828,15 @@ const handleCheckoutSessionCompleted = async (session: Stripe.Checkout.Session):
       status: 'paid',
       reference,
       couponCode,
+      currency: stripeCurrency || undefined,
       stripeCheckoutSessionId: session.id,
       stripeSubscriptionId,
       meta: {
-        stripeCustomerId
+        stripeCustomerId,
+        originalAmount: finalPrice,
+        originalCurrency: stripeCurrency || undefined,
+        reportingAmount,
+        reportingCurrency: reportingAmount !== undefined ? REPORTING_CURRENCY : undefined
       }
     });
   }
@@ -835,6 +892,19 @@ const handleInvoicePaymentSucceeded = async (invoice: Stripe.Invoice): Promise<v
   const reference = `stripe_inv_${invoice.id}`;
   const existing = await TransactionModel.findOne({ reference });
   if (!existing) {
+    const stripeCurrency = normalizeCurrencyCode(invoice.currency || config.stripe.currency);
+    let reportingAmount: number | undefined;
+    if (stripeCurrency) {
+      try {
+        reportingAmount = await convertAmountToSar({
+          amount: amountPaid,
+          fromCurrency: stripeCurrency
+        });
+      } catch {
+        reportingAmount = stripeCurrency === REPORTING_CURRENCY ? amountPaid : undefined;
+      }
+    }
+
     await TransactionModel.create({
       user: localSubscription.user,
       amount: amountPaid,
@@ -842,10 +912,15 @@ const handleInvoicePaymentSucceeded = async (invoice: Stripe.Invoice): Promise<v
       platform: 'stripe',
       status: 'paid',
       reference,
+      currency: stripeCurrency || undefined,
       stripeInvoiceId: invoice.id,
       stripeSubscriptionId,
       meta: {
-        stripeCustomerId
+        stripeCustomerId,
+        originalAmount: amountPaid,
+        originalCurrency: stripeCurrency || undefined,
+        reportingAmount,
+        reportingCurrency: reportingAmount !== undefined ? REPORTING_CURRENCY : undefined
       }
     });
   }

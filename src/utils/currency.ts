@@ -1,4 +1,5 @@
 const EXCHANGE_RATE_API_BASE_URL = process.env.EXCHANGE_RATE_API_BASE_URL || 'https://open.er-api.com/v6/latest';
+export const REPORTING_CURRENCY = 'SAR';
 
 const rateCache = new Map<string, { expiresAt: number; rates: Record<string, number> }>();
 
@@ -9,6 +10,13 @@ const createHttpError = (message: string, statusCode: number): Error & { statusC
 };
 
 const roundCurrency = (value: number): number => Number(value.toFixed(2));
+
+export const normalizeCurrencyCode = (value?: string | null): string | null => {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  return /^[A-Z]{3}$/.test(normalized) ? normalized : null;
+};
 
 const getRatesForBase = async (baseCurrency: string): Promise<Record<string, number>> => {
   const base = baseCurrency.trim().toUpperCase();
@@ -52,11 +60,15 @@ export const convertAmount = async ({
   fromCurrency: string;
   toCurrency: string;
 }): Promise<number> => {
-  const normalizedFrom = fromCurrency.trim().toUpperCase();
-  const normalizedTo = toCurrency.trim().toUpperCase();
+  const normalizedFrom = normalizeCurrencyCode(fromCurrency);
+  const normalizedTo = normalizeCurrencyCode(toCurrency);
 
   if (!Number.isFinite(amount)) {
     throw createHttpError('Amount must be a finite number', 400);
+  }
+
+  if (!normalizedFrom || !normalizedTo) {
+    throw createHttpError('Both fromCurrency and toCurrency must be valid 3-letter codes', 400);
   }
 
   if (normalizedFrom === normalizedTo) {
@@ -79,3 +91,11 @@ export const convertAmountToUsd = async ({
   amount: number;
   fromCurrency: string;
 }): Promise<number> => convertAmount({ amount, fromCurrency, toCurrency: 'USD' });
+
+export const convertAmountToSar = async ({
+  amount,
+  fromCurrency
+}: {
+  amount: number;
+  fromCurrency: string;
+}): Promise<number> => convertAmount({ amount, fromCurrency, toCurrency: REPORTING_CURRENCY });

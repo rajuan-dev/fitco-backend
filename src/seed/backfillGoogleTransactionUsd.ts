@@ -5,7 +5,7 @@ import SubscriptionPricingModel from '../modules/subscription/pricing.model';
 import TransactionModel from '../modules/subscription/transaction.model';
 import { getGoogleBasePlanPrice } from '../modules/subscription/google.service';
 import { PLAN_TYPES, PlanType } from '../utils/constants';
-import { convertAmountToUsd } from '../utils/currency';
+import { convertAmountToSar, normalizeCurrencyCode, REPORTING_CURRENCY } from '../utils/currency';
 
 const resolvePlanType = (basePlanId?: string, productId?: string): PlanType | null => {
   if (basePlanId) {
@@ -54,17 +54,17 @@ const resolveReportingPrice = async ({
 
   try {
     return {
-      amount: await convertAmountToUsd({
+      amount: await convertAmountToSar({
         amount: priceToConvert.amount,
         fromCurrency: priceToConvert.currency
       }),
-      currency: 'USD'
+      currency: REPORTING_CURRENCY
     };
   } catch {
-    if (fallbackPrice.currency.toUpperCase() === 'USD') {
+    if (normalizeCurrencyCode(fallbackPrice.currency) === REPORTING_CURRENCY) {
       return {
         amount: fallbackPrice.amount,
-        currency: 'USD'
+        currency: REPORTING_CURRENCY
       };
     }
 

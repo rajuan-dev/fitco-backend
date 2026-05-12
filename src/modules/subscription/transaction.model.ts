@@ -14,6 +14,8 @@ export interface TransactionDocument extends Document {
   stripeSubscriptionId?: string;
   stripeInvoiceId?: string;
   meta?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const TransactionSchema = new Schema<TransactionDocument>(
