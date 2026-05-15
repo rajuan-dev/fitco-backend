@@ -42,8 +42,28 @@ const goalValidators = [
 ];
 
 const dailyGoalValidators = [
-  allowOnlyFields(['calories']),
-  body('calories').isFloat({ gt: 0, max: 10000 })
+  allowOnlyFields(['calories', 'macroRatio']),
+  body('calories').isFloat({ gt: 0, max: 10000 }),
+  body('macroRatio').optional().isObject(),
+  body('macroRatio.proteinPercent').optional().isFloat({ min: 0, max: 100 }),
+  body('macroRatio.carbsPercent').optional().isFloat({ min: 0, max: 100 }),
+  body('macroRatio.fatPercent').optional().isFloat({ min: 0, max: 100 }),
+  body().custom((value) => {
+    if (!value?.macroRatio) {
+      return true;
+    }
+
+    const totalPercent =
+      Number(value.macroRatio.proteinPercent || 0) +
+      Number(value.macroRatio.carbsPercent || 0) +
+      Number(value.macroRatio.fatPercent || 0);
+
+    if (Math.abs(totalPercent - 100) > 0.01) {
+      throw new Error('Macro ratio total must equal 100.');
+    }
+
+    return true;
+  })
 ];
 
 const completeProfileValidators = [
@@ -218,10 +238,20 @@ export const setMyDailyGoal = [
   ...dailyGoalValidators,
   validate,
   asyncHandler(async (req: Request, res: Response) => {
-    const user = await userService.setDailyGoal(req.auth!.id, { calories: Number(req.body.calories) });
+    const user = await userService.setDailyGoal(req.auth!.id, {
+      calories: Number(req.body.calories),
+      macroRatio: req.body.macroRatio
+    });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+
+    const macroRatio = userService.deriveMacroRatioFromGoals(
+      user.dailyCalorieGoal,
+      user.dailyProteinGoal,
+      user.dailyCarbGoal,
+      user.dailyFatGoal
+    );
 
     res.json({
       message: 'Daily goal updated',
@@ -230,7 +260,9 @@ export const setMyDailyGoal = [
         protein: user.dailyProteinGoal,
         carbs: user.dailyCarbGoal,
         fat: user.dailyFatGoal,
-        macroRatio: { proteinPercent: 30, carbsPercent: 40, fatPercent: 30 }
+        // Old hardcoded response kept here for reference:
+        // macroRatio: { proteinPercent: 30, carbsPercent: 40, fatPercent: 30 }
+        macroRatio
       },
       user
     });

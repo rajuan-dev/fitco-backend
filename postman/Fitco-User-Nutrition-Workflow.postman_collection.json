@@ -275,6 +275,78 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Delete Meal Log",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/food-logs/{{mealLogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "food-logs",
+                "{{mealLogId}}"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"message\": \"Food log deleted\",\n  \"deletedFoodLog\": {\n    \"id\": \"{{mealLogId}}\",\n    \"meal\": \"breakfast\",\n    \"foodName\": \"حليب طازج قليل دسم\",\n    \"calories\": 64,\n    \"loggedAt\": \"2026-05-14T22:24:01.944Z\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Meal Log",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"meal\": \"breakfast\",\n  \"servings\": 2,\n  \"servingSize\": 100,\n  \"servingUnit\": \"ml\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/food-logs/{{mealLogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "food-logs",
+                "{{mealLogId}}"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },

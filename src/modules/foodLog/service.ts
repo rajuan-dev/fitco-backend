@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import FoodDatabaseModel, { FoodServingUnit } from '../foodDatabase/model';
 import FoodLogModel, { FOOD_LOG_MEALS, FOOD_LOG_SOURCES, FoodLogDocument, FoodLogMeal, FoodLogSource } from './model';
 import UserModel, { UserDocument } from '../user/model';
+import { getDailyGoalConfig } from '../user/service';
 
 interface DailyGoalValues {
   calories: number;
@@ -106,6 +107,14 @@ interface FoodPreviewResponse {
 
 interface HomeDataResponse {
   date: string;
+  dailyGoal: {
+    calories: number;
+    macroRatio: {
+      proteinPercent: number;
+      carbsPercent: number;
+      fatPercent: number;
+    };
+  };
   goals: DailyGoalValues;
   totals: DailyGoalValues;
   remaining: DailyGoalValues;
@@ -234,77 +243,11 @@ interface FoodSelectionDetails {
   fat: number;
 }
 
-const loadSelectedFood = async (userId: string, input: FoodLogInput): Promise<FoodSelectionDetails> => {
-  if (!input.foodId) {
-    throw createHttpError('foodId is required', 400);
-  }
-
-  const foodRef = String(input.foodId).trim();
-  const isObjectId = mongoose.isValidObjectId(foodRef);
-
-  const databaseFood = isObjectId ? await FoodDatabaseModel.findById(foodRef) : await FoodDatabaseModel.findOne({ barcode: foodRef });
-  if (databaseFood) {
-    return {
-      foodId: databaseFood._id.toString(),
-      foodSource: FOOD_LOG_SOURCES[0],
-      foodName: databaseFood.product,
-      brandName: databaseFood.brand || '',
-      baseServingSize: databaseFood.servingSize,
-      baseServingUnit: databaseFood.servingUnit,
-      calories: databaseFood.calories,
-      protein: databaseFood.protein,
-      carbs: databaseFood.carbs,
-      fat: databaseFood.fat
-    };
-  }
-
-  throw createHttpError('Food item not found', 404);
-};
-
-const buildCalculatedDailyGoals = (user: UserDocument | null): DailyGoalValues => {
-  if (!user) {
-    return DEFAULT_DAILY_GOALS;
-  }
-
-  const weight = Number(user.currentWeight ?? user.weight ?? 70);
-  const height = Number(user.height ?? 170);
-  const age = Number(user.age ?? 30);
-  const activityLevel = user.activityLevel ?? 'standard';
-  const goal = user.goal ?? 'maintain_weight';
-
-  const genderOffset = user.gender === 'female' ? -161 : user.gender === 'male' ? 5 : -78;
-  const bmr = 10 * weight + 6.25 * height - 5 * age + genderOffset;
-  const activityMultiplier = ACTIVITY_MULTIPLIERS[activityLevel] ?? ACTIVITY_MULTIPLIERS.standard;
-  const calorieTarget = Math.max(1200, Math.round(bmr * activityMultiplier + (GOAL_CALORIE_ADJUSTMENT[goal] ?? 0)));
-  const proteinTarget = Math.max(60, Math.round(weight * (GOAL_PROTEIN_MULTIPLIER[goal] ?? 1.6)));
-  const fatTarget = Math.max(35, Math.round((calorieTarget * (GOAL_FAT_RATIO[goal] ?? 0.3)) / 9));
-  const carbCalories = calorieTarget - proteinTarget * 4 - fatTarget * 9;
-  const carbTarget = Math.max(50, Math.round(carbCalories / 4));
-
-  return {
-    calories: calorieTarget,
-    protein: proteinTarget,
-    carbs: carbTarget,
-    fat: fatTarget
-  };
-};
-
-const buildDailyGoals = (user: UserDocument | null): DailyGoalValues => {
-  if (user?.dailyCalorieGoal && user?.dailyProteinGoal !== undefined && user?.dailyCarbGoal !== undefined && user?.dailyFatGoal !== undefined) {
-    return {
-      calories: Number(user.dailyCalorieGoal),
-      protein: Number(user.dailyProteinGoal),
-      carbs: Number(user.dailyCarbGoal),
-      fat: Number(user.dailyFatGoal)
-    };
-  }
-
-  return buildCalculatedDailyGoals(user);
-};
-
-const buildPreviewFromSelection = async (userId: string, input: FoodLogInput): Promise<FoodPreviewResponse & { loggedAt: Date }> => {
-  const [selectedFood, user] = await Promise.all([loadSelectedFood(userId, input), UserModel.findById(userId)]);
-
+const buildPreviewFromFoodDetails = (
+  selectedFood: FoodSelectionDetails,
+  user: UserDocument | null,
+  input: FoodLogInput
+): FoodPreviewResponse & { loggedAt: Date } => {
   const servings = Number(input.servings ?? 1);
   const servingSize = Number(input.servingSize ?? selectedFood.baseServingSize);
   const servingUnit = input.servingUnit ?? selectedFood.baseServingUnit;
@@ -392,6 +335,79 @@ const buildPreviewFromSelection = async (userId: string, input: FoodLogInput): P
   };
 };
 
+const loadSelectedFood = async (userId: string, input: FoodLogInput): Promise<FoodSelectionDetails> => {
+  if (!input.foodId) {
+    throw createHttpError('foodId is required', 400);
+  }
+
+  const foodRef = String(input.foodId).trim();
+  const isObjectId = mongoose.isValidObjectId(foodRef);
+
+  const databaseFood = isObjectId ? await FoodDatabaseModel.findById(foodRef) : await FoodDatabaseModel.findOne({ barcode: foodRef });
+  if (databaseFood) {
+    return {
+      foodId: databaseFood._id.toString(),
+      foodSource: FOOD_LOG_SOURCES[0],
+      foodName: databaseFood.product,
+      brandName: databaseFood.brand || '',
+      baseServingSize: databaseFood.servingSize,
+      baseServingUnit: databaseFood.servingUnit,
+      calories: databaseFood.calories,
+      protein: databaseFood.protein,
+      carbs: databaseFood.carbs,
+      fat: databaseFood.fat
+    };
+  }
+
+  throw createHttpError('Food item not found', 404);
+};
+
+const buildCalculatedDailyGoals = (user: UserDocument | null): DailyGoalValues => {
+  if (!user) {
+    return DEFAULT_DAILY_GOALS;
+  }
+
+  const weight = Number(user.currentWeight ?? user.weight ?? 70);
+  const height = Number(user.height ?? 170);
+  const age = Number(user.age ?? 30);
+  const activityLevel = user.activityLevel ?? 'standard';
+  const goal = user.goal ?? 'maintain_weight';
+
+  const genderOffset = user.gender === 'female' ? -161 : user.gender === 'male' ? 5 : -78;
+  const bmr = 10 * weight + 6.25 * height - 5 * age + genderOffset;
+  const activityMultiplier = ACTIVITY_MULTIPLIERS[activityLevel] ?? ACTIVITY_MULTIPLIERS.standard;
+  const calorieTarget = Math.max(1200, Math.round(bmr * activityMultiplier + (GOAL_CALORIE_ADJUSTMENT[goal] ?? 0)));
+  const proteinTarget = Math.max(60, Math.round(weight * (GOAL_PROTEIN_MULTIPLIER[goal] ?? 1.6)));
+  const fatTarget = Math.max(35, Math.round((calorieTarget * (GOAL_FAT_RATIO[goal] ?? 0.3)) / 9));
+  const carbCalories = calorieTarget - proteinTarget * 4 - fatTarget * 9;
+  const carbTarget = Math.max(50, Math.round(carbCalories / 4));
+
+  return {
+    calories: calorieTarget,
+    protein: proteinTarget,
+    carbs: carbTarget,
+    fat: fatTarget
+  };
+};
+
+const buildDailyGoals = (user: UserDocument | null): DailyGoalValues => {
+  if (user?.dailyCalorieGoal && user?.dailyProteinGoal !== undefined && user?.dailyCarbGoal !== undefined && user?.dailyFatGoal !== undefined) {
+    return {
+      calories: Number(user.dailyCalorieGoal),
+      protein: Number(user.dailyProteinGoal),
+      carbs: Number(user.dailyCarbGoal),
+      fat: Number(user.dailyFatGoal)
+    };
+  }
+
+  return buildCalculatedDailyGoals(user);
+};
+
+const buildPreviewFromSelection = async (userId: string, input: FoodLogInput): Promise<FoodPreviewResponse & { loggedAt: Date }> => {
+  const [selectedFood, user] = await Promise.all([loadSelectedFood(userId, input), UserModel.findById(userId)]);
+  return buildPreviewFromFoodDetails(selectedFood, user, input);
+};
+
 export const previewFoodLog = async (userId: string, input: FoodLogInput): Promise<FoodPreviewResponse> => {
   const preview = await buildPreviewFromSelection(userId, input);
   return preview;
@@ -424,6 +440,63 @@ export const createFoodLog = async (userId: string, input: FoodLogInput): Promis
     dailyGoals: preview.dailyGoals,
     loggedAt: preview.loggedAt
   });
+};
+
+export const deleteFoodLog = async (userId: string, foodLogId: string): Promise<FoodLogDocument | null> => {
+  if (!mongoose.isValidObjectId(foodLogId)) {
+    throw createHttpError('Invalid food log id', 400);
+  }
+
+  return FoodLogModel.findOneAndDelete({ _id: foodLogId, user: userId });
+};
+
+export const updateFoodLog = async (userId: string, foodLogId: string, input: FoodLogInput): Promise<FoodLogDocument | null> => {
+  if (!mongoose.isValidObjectId(foodLogId)) {
+    throw createHttpError('Invalid food log id', 400);
+  }
+
+  const existingLog = await FoodLogModel.findOne({ _id: foodLogId, user: userId });
+  if (!existingLog) {
+    return null;
+  }
+
+  const [selectedFood, user] = await Promise.all([
+    loadSelectedFood(userId, { foodId: existingLog.food.toString() }),
+    UserModel.findById(userId)
+  ]);
+
+  const preview = buildPreviewFromFoodDetails(selectedFood, user, {
+    meal: input.meal ?? existingLog.meal,
+    servings: input.servings ?? existingLog.servings,
+    servingSize: input.servingSize ?? existingLog.servingSize,
+    servingUnit: input.servingUnit ?? existingLog.servingUnit,
+    loggedAt: input.loggedAt ?? existingLog.loggedAt
+  });
+
+  existingLog.food = inputToObjectId(preview.food.id);
+  existingLog.foodSource = preview.food.source;
+  existingLog.foodName = preview.food.name;
+  existingLog.brandName = preview.food.brandName || '';
+  existingLog.meal = preview.selection.meal;
+  existingLog.servings = preview.selection.servings;
+  existingLog.servingSize = preview.selection.servingSize;
+  existingLog.servingUnit = preview.selection.servingUnit;
+  existingLog.baseServingSize = preview.selection.baseServingSize;
+  existingLog.baseServingUnit = preview.selection.baseServingUnit;
+  existingLog.calories = preview.nutrition.calories;
+  existingLog.protein = preview.nutrition.protein.grams;
+  existingLog.carbs = preview.nutrition.carbs.grams;
+  existingLog.fat = preview.nutrition.fat.grams;
+  existingLog.macroBreakdown = {
+    protein: preview.nutrition.protein,
+    carbs: preview.nutrition.carbs,
+    fat: preview.nutrition.fat
+  };
+  existingLog.dailyGoals = preview.dailyGoals;
+  existingLog.loggedAt = preview.loggedAt;
+
+  await existingLog.save();
+  return existingLog;
 };
 
 export const listFoodLogs = async ({ userId, date, meal }: ListFoodLogsParams): Promise<FoodLogDocument[]> => {
@@ -564,6 +637,7 @@ export const getHomeData = async (userId: string, dateValue?: string): Promise<H
 
   return {
     date: getDateKeyUTC(date),
+    dailyGoal: getDailyGoalConfig(user),
     goals,
     totals,
     remaining,

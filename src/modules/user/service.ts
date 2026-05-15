@@ -53,7 +53,100 @@ interface HealthPayload {
 
 interface DailyGoalPayload {
   calories: number;
+  macroRatio?: {
+    proteinPercent: number;
+    carbsPercent: number;
+    fatPercent: number;
+  };
 }
+
+const DEFAULT_DAILY_GOAL_CONFIG = {
+  calories: 2200,
+  macroRatio: {
+    proteinPercent: 20,
+    carbsPercent: 40,
+    fatPercent: 40
+  }
+} as const;
+
+const normalizeMacroRatio = (macroRatio?: DailyGoalPayload['macroRatio']) => {
+  if (!macroRatio) {
+    return { proteinPercent: 30, carbsPercent: 40, fatPercent: 30 };
+  }
+
+  const proteinPercent = Number(macroRatio.proteinPercent);
+  const carbsPercent = Number(macroRatio.carbsPercent);
+  const fatPercent = Number(macroRatio.fatPercent);
+
+  if (![proteinPercent, carbsPercent, fatPercent].every((value) => Number.isFinite(value) && value >= 0)) {
+    throw new Error('Macro ratio values must be numbers greater than or equal to 0.');
+  }
+
+  const totalPercent = proteinPercent + carbsPercent + fatPercent;
+  if (Math.abs(totalPercent - 100) > 0.01) {
+    throw new Error('Macro ratio total must equal 100.');
+  }
+
+  return { proteinPercent, carbsPercent, fatPercent };
+};
+
+export const buildMacroGoalsFromCalories = (calories: number, macroRatio?: DailyGoalPayload['macroRatio']) => {
+  const normalizedRatio = normalizeMacroRatio(macroRatio);
+
+  return {
+    calories,
+    protein: Number(((calories * (normalizedRatio.proteinPercent / 100)) / 4).toFixed(1)),
+    carbs: Number(((calories * (normalizedRatio.carbsPercent / 100)) / 4).toFixed(1)),
+    fat: Number(((calories * (normalizedRatio.fatPercent / 100)) / 9).toFixed(1)),
+    macroRatio: normalizedRatio
+  };
+};
+
+export const deriveMacroRatioFromGoals = (calories?: number | null, protein?: number | null, carbs?: number | null, fat?: number | null) => {
+  const caloriesValue = Number(calories || 0);
+  if (caloriesValue <= 0) {
+    return { proteinPercent: 0, carbsPercent: 0, fatPercent: 0 };
+  }
+
+  return {
+    proteinPercent: Math.round(((Number(protein || 0) * 4) / caloriesValue) * 100),
+    carbsPercent: Math.round(((Number(carbs || 0) * 4) / caloriesValue) * 100),
+    fatPercent: Math.round(((Number(fat || 0) * 9) / caloriesValue) * 100)
+  };
+};
+
+export const getDailyGoalConfig = (user?: Pick<UserDocument, 'dailyCalorieGoal' | 'dailyProteinPercent' | 'dailyCarbsPercent' | 'dailyFatPercent' | 'dailyProteinGoal' | 'dailyCarbGoal' | 'dailyFatGoal'> | null) => {
+  if (!user) {
+    return DEFAULT_DAILY_GOAL_CONFIG;
+  }
+
+  const calories = Number(user.dailyCalorieGoal || DEFAULT_DAILY_GOAL_CONFIG.calories);
+  const hasStoredPercentages =
+    user.dailyProteinPercent !== undefined && user.dailyCarbsPercent !== undefined && user.dailyFatPercent !== undefined;
+
+  if (hasStoredPercentages) {
+    return {
+      calories,
+      macroRatio: {
+        proteinPercent: Number(user.dailyProteinPercent),
+        carbsPercent: Number(user.dailyCarbsPercent),
+        fatPercent: Number(user.dailyFatPercent)
+      }
+    };
+  }
+
+  const hasStoredGoalGrams =
+    user.dailyProteinGoal !== undefined && user.dailyCarbGoal !== undefined && user.dailyFatGoal !== undefined;
+
+  if (hasStoredGoalGrams) {
+    return {
+      calories,
+      macroRatio: deriveMacroRatioFromGoals(calories, user.dailyProteinGoal, user.dailyCarbGoal, user.dailyFatGoal)
+    };
+  }
+
+  return DEFAULT_DAILY_GOAL_CONFIG;
+};
 
 export const getUsers = async ({ page = 1, limit = 20, blocked }: ListParams): Promise<PaginatedResult<UserDocument>> => {
   const pageNumber = Number(page) || 1;
@@ -124,17 +217,18 @@ export const updateHealthInfo = (id: string, payload: HealthPayload): Promise<Us
 
 export const setDailyGoal = (id: string, payload: DailyGoalPayload): Promise<UserDocument | null> => {
   const calories = Number(payload.calories);
-  const protein = Number(((calories * 0.3) / 4).toFixed(1));
-  const carbs = Number(((calories * 0.4) / 4).toFixed(1));
-  const fat = Number(((calories * 0.3) / 9).toFixed(1));
+  const macroGoals = buildMacroGoalsFromCalories(calories, payload.macroRatio);
 
   return UserModel.findByIdAndUpdate(
     id,
     {
-      dailyCalorieGoal: calories,
-      dailyProteinGoal: protein,
-      dailyCarbGoal: carbs,
-      dailyFatGoal: fat
+      dailyCalorieGoal: macroGoals.calories,
+      dailyProteinGoal: macroGoals.protein,
+      dailyCarbGoal: macroGoals.carbs,
+      dailyFatGoal: macroGoals.fat,
+      dailyProteinPercent: macroGoals.macroRatio.proteinPercent,
+      dailyCarbsPercent: macroGoals.macroRatio.carbsPercent,
+      dailyFatPercent: macroGoals.macroRatio.fatPercent
     },
     { new: true }
   ).select('-password -refreshTokens');

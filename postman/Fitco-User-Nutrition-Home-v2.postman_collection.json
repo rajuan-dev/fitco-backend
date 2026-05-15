@@ -70,6 +70,19 @@
         },
         {
           "name": "Add to Meal Plan (by foodId only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) pm.collectionVariables.set('mealLogId', json.id);",
+                  "if (json._id) pm.collectionVariables.set('mealLogId', json._id);"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -81,6 +94,43 @@
               "raw": "{\n  \"foodId\": \"{{foodId}}\",\n  \"meal\": \"dinner\",\n  \"servings\": 1\n}"
             },
             "url": "{{baseUrl}}/api/v1/food-logs"
+          }
+        },
+        {
+          "name": "Remove Meal Log",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/food-logs/{{mealLogId}}"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"message\": \"Food log deleted\",\n  \"deletedFoodLog\": {\n    \"id\": \"{{mealLogId}}\",\n    \"meal\": \"breakfast\",\n    \"foodName\": \"حليب طازج قليل دسم\",\n    \"calories\": 64,\n    \"loggedAt\": \"2026-05-14T22:24:01.944Z\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Edit Meal Log",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"meal\": \"breakfast\",\n  \"servings\": 2,\n  \"servingSize\": 100,\n  \"servingUnit\": \"ml\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/food-logs/{{mealLogId}}"
           }
         }
       ]
@@ -98,7 +148,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"calories\": 2200\n}"
+              "raw": "{\n  \"calories\": 2200,\n  \"macroRatio\": {\n    \"proteinPercent\": 30,\n    \"carbsPercent\": 40,\n    \"fatPercent\": 30\n  }\n}"
             },
             "url": "{{baseUrl}}/api/v1/users/me/daily-goal"
           }
@@ -131,6 +181,7 @@
     { "key": "userToken", "value": "" },
     { "key": "barcode", "value": "8901234567890" },
     { "key": "foodId", "value": "" },
+    { "key": "mealLogId", "value": "" },
     { "key": "date", "value": "2026-03-07" },
     { "key": "weekStartDate", "value": "2026-03-02" },
     { "key": "page", "value": "1" },
