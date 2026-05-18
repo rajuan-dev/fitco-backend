@@ -33,6 +33,7 @@ export interface UserDocument extends Document {
   dailyProteinPercent?: number;
   dailyCarbsPercent?: number;
   dailyFatPercent?: number;
+  dailyGoalMode?: 'auto' | 'manual';
   isBlocked: boolean;
   refreshTokens: RefreshToken[];
   comparePassword(candidate: string): Promise<boolean>;
@@ -78,6 +79,7 @@ const UserSchema = new Schema<UserDocument>(
     dailyProteinPercent: { type: Number, min: 0, max: 100 },
     dailyCarbsPercent: { type: Number, min: 0, max: 100 },
     dailyFatPercent: { type: Number, min: 0, max: 100 },
+    dailyGoalMode: { type: String, enum: ['auto', 'manual'], default: 'auto' },
     isBlocked: { type: Boolean, default: false },
     refreshTokens: [RefreshTokenSchema]
   },

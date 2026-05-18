@@ -60,6 +60,13 @@ interface DailyGoalPayload {
   };
 }
 
+interface CalculatedDailyGoalValues {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
 const DEFAULT_DAILY_GOAL_CONFIG = {
   calories: 2200,
   macroRatio: {
@@ -112,6 +119,62 @@ export const deriveMacroRatioFromGoals = (calories?: number | null, protein?: nu
     proteinPercent: Math.round(((Number(protein || 0) * 4) / caloriesValue) * 100),
     carbsPercent: Math.round(((Number(carbs || 0) * 4) / caloriesValue) * 100),
     fatPercent: Math.round(((Number(fat || 0) * 9) / caloriesValue) * 100)
+  };
+};
+
+export const calculateDailyGoalsFromProfile = (
+  profile?: Pick<UserDocument, 'currentWeight' | 'weight' | 'height' | 'age' | 'gender' | 'activityLevel' | 'goal'> | null
+): CalculatedDailyGoalValues => {
+  const weight = Number(profile?.currentWeight ?? profile?.weight ?? 70);
+  const height = Number(profile?.height ?? 170);
+  const age = Number(profile?.age ?? 30);
+  const activityLevel = profile?.activityLevel ?? 'standard';
+  const goal = profile?.goal ?? 'maintain_weight';
+
+  const activityMultipliers: Record<string, number> = {
+    standard: 1.2,
+    sedentary: 1.2,
+    lightly_active: 1.375,
+    moderately_active: 1.55,
+    very_active: 1.725,
+    extremely_active: 1.9
+  };
+
+  const goalCalorieAdjustment: Record<string, number> = {
+    lose_weight: -400,
+    maintain_weight: 0,
+    gain_weight: 300,
+    build_muscle: 200
+  };
+
+  const goalProteinMultiplier: Record<string, number> = {
+    lose_weight: 2,
+    maintain_weight: 1.6,
+    gain_weight: 1.8,
+    build_muscle: 2.2
+  };
+
+  const goalFatRatio: Record<string, number> = {
+    lose_weight: 0.25,
+    maintain_weight: 0.3,
+    gain_weight: 0.27,
+    build_muscle: 0.25
+  };
+
+  const genderOffset = profile?.gender === 'female' ? -161 : profile?.gender === 'male' ? 5 : -78;
+  const bmr = 10 * weight + 6.25 * height - 5 * age + genderOffset;
+  const activityMultiplier = activityMultipliers[activityLevel] ?? activityMultipliers.standard;
+  const calorieTarget = Math.max(1200, Math.round(bmr * activityMultiplier + (goalCalorieAdjustment[goal] ?? 0)));
+  const proteinTarget = Math.max(60, Math.round(weight * (goalProteinMultiplier[goal] ?? 1.6)));
+  const fatTarget = Math.max(35, Math.round((calorieTarget * (goalFatRatio[goal] ?? 0.3)) / 9));
+  const carbCalories = calorieTarget - proteinTarget * 4 - fatTarget * 9;
+  const carbTarget = Math.max(50, Math.round(carbCalories / 4));
+
+  return {
+    calories: calorieTarget,
+    protein: proteinTarget,
+    carbs: carbTarget,
+    fat: fatTarget
   };
 };
 
@@ -228,7 +291,42 @@ export const setDailyGoal = (id: string, payload: DailyGoalPayload): Promise<Use
       dailyFatGoal: macroGoals.fat,
       dailyProteinPercent: macroGoals.macroRatio.proteinPercent,
       dailyCarbsPercent: macroGoals.macroRatio.carbsPercent,
-      dailyFatPercent: macroGoals.macroRatio.fatPercent
+      dailyFatPercent: macroGoals.macroRatio.fatPercent,
+      dailyGoalMode: 'manual'
+    },
+    { new: true }
+  ).select('-password -refreshTokens');
+};
+
+export const syncAutoDailyGoals = async (id: string): Promise<UserDocument | null> => {
+  const user = await UserModel.findById(id).select('-password -refreshTokens');
+  if (!user) {
+    return null;
+  }
+
+  if (user.dailyGoalMode === 'manual') {
+    return user;
+  }
+
+  const calculatedGoals = calculateDailyGoalsFromProfile(user);
+  const macroRatio = deriveMacroRatioFromGoals(
+    calculatedGoals.calories,
+    calculatedGoals.protein,
+    calculatedGoals.carbs,
+    calculatedGoals.fat
+  );
+
+  return UserModel.findByIdAndUpdate(
+    id,
+    {
+      dailyCalorieGoal: calculatedGoals.calories,
+      dailyProteinGoal: calculatedGoals.protein,
+      dailyCarbGoal: calculatedGoals.carbs,
+      dailyFatGoal: calculatedGoals.fat,
+      dailyProteinPercent: macroRatio.proteinPercent,
+      dailyCarbsPercent: macroRatio.carbsPercent,
+      dailyFatPercent: macroRatio.fatPercent,
+      dailyGoalMode: 'auto'
     },
     { new: true }
   ).select('-password -refreshTokens');

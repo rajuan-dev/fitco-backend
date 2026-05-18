@@ -140,10 +140,11 @@ export const upsertMyProfile = [
   ...profileValidators,
   validate,
   asyncHandler(async (req: Request, res: Response) => {
-    const user = await userService.updateProfile(req.auth!.id, req.body);
-    if (!user) {
+    const profile = await userService.updateProfile(req.auth!.id, req.body);
+    if (!profile) {
       return res.status(404).json({ message: 'User not found' });
     }
+    const user = await userService.syncAutoDailyGoals(req.auth!.id);
     res.json({ message: 'Profile updated', user });
   })
 ];
@@ -169,6 +170,7 @@ export const submitOnboarding = [
     if (!profile) {
       return res.status(404).json({ message: 'User not found' });
     }
+    await userService.syncAutoDailyGoals(req.auth!.id);
     const user = await userService.updateHealthInfo(req.auth!.id, req.body);
     res.json({ message: 'Onboarding information saved', user });
   })
@@ -186,10 +188,11 @@ export const setMyActivityLevel = [
   ...activityLevelValidators,
   validate,
   asyncHandler(async (req: Request, res: Response) => {
-    const user = await userService.updateProfile(req.auth!.id, { activityLevel: req.body.activityLevel });
-    if (!user) {
+    const profile = await userService.updateProfile(req.auth!.id, { activityLevel: req.body.activityLevel });
+    if (!profile) {
       return res.status(404).json({ message: 'User not found' });
     }
+    const user = await userService.syncAutoDailyGoals(req.auth!.id);
     const selection = userService.ACTIVITY_LEVEL_OPTIONS.find((item) => item.key === req.body.activityLevel);
     res.json({ message: 'Activity level updated', selection, user });
   })
@@ -199,10 +202,11 @@ export const setMyGoal = [
   ...goalValidators,
   validate,
   asyncHandler(async (req: Request, res: Response) => {
-    const user = await userService.updateProfile(req.auth!.id, { goal: req.body.goal });
-    if (!user) {
+    const profile = await userService.updateProfile(req.auth!.id, { goal: req.body.goal });
+    if (!profile) {
       return res.status(404).json({ message: 'User not found' });
     }
+    const user = await userService.syncAutoDailyGoals(req.auth!.id);
     const selection = userService.GOAL_OPTIONS.find((item) => item.key === req.body.goal);
     res.json({ message: 'Goal updated', selection, user });
   })
@@ -217,6 +221,7 @@ export const upsertMyCompleteProfile = [
       return res.status(404).json({ message: 'User not found' });
     }
 
+    await userService.syncAutoDailyGoals(req.auth!.id);
     const user = await userService.updateHealthInfo(req.auth!.id, req.body);
     const activityLevelSelection =
       req.body.activityLevel !== undefined
