@@ -149,6 +149,22 @@ const stripNilValues = <T extends Record<string, unknown>>(value: T): Partial<T>
 
 const parsePlanInterval = (planType: PlanType): 'month' | 'year' => (planType === PLAN_TYPES.YEARLY ? 'year' : 'month');
 
+const isSameUserId = (existingUserId: unknown, nextUserId: string): boolean => {
+  if (!existingUserId) {
+    return false;
+  }
+
+  if (typeof existingUserId === 'string') {
+    return existingUserId === nextUserId;
+  }
+
+  if (typeof existingUserId === 'object' && existingUserId !== null && 'toString' in existingUserId) {
+    return String((existingUserId as { toString(): string }).toString()) === nextUserId;
+  }
+
+  return false;
+};
+
 const getPlanPriceCents = (planType: PlanType, pricing: PricingContext): number => {
   if (planType === PLAN_TYPES.YEARLY) {
     return pricing.yearlyPriceCents;
@@ -791,6 +807,13 @@ const upsertExternalSubscription = async (params: {
   });
 
   if (existing) {
+    if (!isSameUserId(existing.user, params.userId)) {
+      throw createHttpError(
+        `This ${params.platform} subscription is already linked to another account. Please sign in with the original account or contact support.`,
+        409
+      );
+    }
+
     Object.assign(existing, payload);
     await existing.save();
     return existing;
