@@ -217,6 +217,66 @@
       ]
     },
     {
+      "name": "RevenueCat Sync",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/subscription/revenuecat/sync",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "{{apiPrefix}}",
+            "subscription",
+            "revenuecat",
+            "sync"
+          ]
+        },
+        "description": "Call this after a RevenueCat purchase or restore to force backend sync using the authenticated user's JWT."
+      },
+      "response": [
+        {
+          "name": "Sample Response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/subscription/revenuecat/sync"
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "body": "{\n  \"success\": true,\n  \"message\": \"Subscription synchronized successfully\",\n  \"user\": {\n    \"uid\": \"6a2c5a41a2447745dfced253\",\n    \"email\": \"user@example.com\",\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"displayName\": \"John Doe\",\n    \"subscribed\": true,\n    \"subscriptionStatus\": \"premium\"\n  },\n  \"normalized\": {\n    \"isActive\": true\n  },\n  \"subscription\": {\n    \"isActive\": true\n  }\n}"
+        }
+      ]
+    },
+    {
       "name": "Apple Webhook",
       "request": {
         "method": "POST",
@@ -263,6 +323,65 @@
           "code": 200,
           "_postman_previewlanguage": "json",
           "body": "{\n  \"notificationType\": \"DID_RENEW\",\n  \"subtype\": \"\",\n  \"received\": true\n}"
+        }
+      ]
+    },
+    {
+      "name": "RevenueCat Webhook",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{revenueCatWebhookAuthToken}}",
+            "disabled": true
+          },
+          {
+            "key": "x-revenuecat-webhook-token",
+            "value": "{{revenueCatWebhookAuthToken}}",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"api_version\": \"1.0\",\n  \"event\": {\n    \"id\": \"EVT_66b6c0000000000000000002\",\n    \"type\": \"INITIAL_PURCHASE\",\n    \"app_user_id\": \"{{revenueCatAppUserId}}\",\n    \"original_app_user_id\": \"{{revenueCatAppUserId}}\",\n    \"product_id\": \"com.fitco.subscription.monthly\",\n    \"entitlement_id\": \"premium\",\n    \"entitlement_ids\": [\"premium\"],\n    \"purchased_at_ms\": 1781222400000,\n    \"expiration_at_ms\": 1783814400000,\n    \"environment\": \"SANDBOX\",\n    \"price\": 9.99,\n    \"currency\": \"USD\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/subscription/revenuecat-webhook",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "{{apiPrefix}}",
+            "subscription",
+            "revenuecat-webhook"
+          ]
+        },
+        "description": "Test RevenueCat webhook delivery. Enable one of the auth headers only if you configured a webhook auth token in RevenueCat."
+      },
+      "response": [
+        {
+          "name": "Sample Response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/subscription/revenuecat-webhook"
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "body": "{\n  \"received\": true,\n  \"eventId\": \"EVT_66b6c0000000000000000002\",\n  \"type\": \"INITIAL_PURCHASE\"\n}"
         }
       ]
     },
@@ -336,6 +455,14 @@
     },
     {
       "key": "googlePurchaseToken",
+      "value": ""
+    },
+    {
+      "key": "revenueCatWebhookAuthToken",
+      "value": ""
+    },
+    {
+      "key": "revenueCatAppUserId",
       "value": ""
     }
   ]

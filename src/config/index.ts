@@ -51,6 +51,11 @@ export interface AppConfig {
     yearlyBasePlanIds: string[];
     priceRegion: string;
   };
+  revenueCat: {
+    secretKey: string;
+    premiumEntitlementId: string;
+    webhookAuthToken: string;
+  };
 }
 
 const config: AppConfig = {
@@ -126,6 +131,11 @@ const config: AppConfig = {
       .map(value => value.trim())
       .filter(Boolean),
     priceRegion: process.env.GOOGLE_PRICE_REGION || 'US'
+  },
+  revenueCat: {
+    secretKey: process.env.REVENUECAT_SECRET_KEY || '',
+    premiumEntitlementId: process.env.REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'premium',
+    webhookAuthToken: process.env.REVENUECAT_WEBHOOK_AUTH_TOKEN || ''
   }
 };
 

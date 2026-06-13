@@ -4,7 +4,7 @@ export interface TransactionDocument extends Document {
   user: mongoose.Types.ObjectId;
   amount: number;
   planType: string;
-  platform?: 'stripe' | 'apple' | 'google';
+  platform?: 'stripe' | 'apple' | 'google' | 'revenuecat';
   status: 'paid' | 'failed';
   reference: string;
   couponCode?: string;
@@ -23,7 +23,7 @@ const TransactionSchema = new Schema<TransactionDocument>(
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     amount: { type: Number, required: true },
     planType: { type: String, required: true },
-    platform: { type: String, enum: ['stripe', 'apple', 'google'], default: 'stripe', index: true },
+    platform: { type: String, enum: ['stripe', 'apple', 'google', 'revenuecat'], default: 'stripe', index: true },
     status: { type: String, enum: ['paid', 'failed'], default: 'paid' },
     reference: { type: String, required: true },
     couponCode: String,

@@ -130,6 +130,66 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "RevenueCat Sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subscription/revenuecat/sync",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "revenuecat",
+                "sync"
+              ]
+            },
+            "description": "Force backend sync from RevenueCat using the authenticated user's JWT."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Subscription Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subscription/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "status"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -451,6 +511,51 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "06 - RevenueCat Webhook",
+      "item": [
+        {
+          "name": "RevenueCat Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{revenueCatWebhookAuthToken}}",
+                "disabled": true
+              },
+              {
+                "key": "x-revenuecat-webhook-token",
+                "value": "{{revenueCatWebhookAuthToken}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_version\": \"1.0\",\n  \"event\": {\n    \"id\": \"EVT_66b6c0000000000000000002\",\n    \"type\": \"INITIAL_PURCHASE\",\n    \"app_user_id\": \"{{revenueCatAppUserId}}\",\n    \"original_app_user_id\": \"{{revenueCatAppUserId}}\",\n    \"product_id\": \"com.fitco.subscription.monthly\",\n    \"entitlement_id\": \"premium\",\n    \"entitlement_ids\": [\"premium\"],\n    \"purchased_at_ms\": 1781222400000,\n    \"expiration_at_ms\": 1783814400000,\n    \"environment\": \"SANDBOX\",\n    \"price\": 9.99,\n    \"currency\": \"USD\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subscription/revenuecat-webhook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscription",
+                "revenuecat-webhook"
+              ]
+            },
+            "description": "Enable an auth header only if you configured a RevenueCat webhook token."
+          },
+          "response": []
+        }
+      ]
     }
   ],
   "variable": [
@@ -477,6 +582,14 @@
     {
       "key": "stripeWebhookSignature",
       "value": "t=0,v1=replace_with_real_signature"
+    },
+    {
+      "key": "revenueCatWebhookAuthToken",
+      "value": ""
+    },
+    {
+      "key": "revenueCatAppUserId",
+      "value": ""
     }
   ]
 }

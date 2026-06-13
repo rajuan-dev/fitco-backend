@@ -107,7 +107,7 @@ interface StoreReportedPrice {
 }
 
 type ManualSubscriptionStatus = 'paid' | 'free';
-type SubscriptionPlatform = 'stripe' | 'apple' | 'google';
+type SubscriptionPlatform = 'stripe' | 'apple' | 'google' | 'revenuecat';
 
 interface NormalizedSubscriptionResult {
   subscription: SubscriptionDocument;
@@ -122,6 +122,48 @@ interface NormalizedSubscriptionResult {
     status: SubscriptionStatus;
     isActive: boolean;
   };
+}
+
+interface RevenueCatEntitlement {
+  expires_date?: string | null;
+  product_identifier?: string | null;
+  purchase_date?: string | null;
+}
+
+interface RevenueCatSubscription {
+  expires_date?: string | null;
+  purchase_date?: string | null;
+  original_purchase_date?: string | null;
+  store?: string | null;
+  store_transaction_id?: string | null;
+  unsubscribe_detected_at?: string | null;
+}
+
+interface RevenueCatSubscriberResponse {
+  subscriber?: {
+    entitlements?: Record<string, RevenueCatEntitlement | undefined>;
+    subscriptions?: Record<string, RevenueCatSubscription | undefined>;
+  };
+}
+
+interface RevenueCatWebhookEvent {
+  id?: string;
+  type?: string;
+  app_user_id?: string;
+  original_app_user_id?: string;
+  product_id?: string;
+  entitlement_id?: string;
+  entitlement_ids?: string[];
+  purchased_at_ms?: number;
+  expiration_at_ms?: number;
+  environment?: string;
+  price?: number;
+  currency?: string;
+}
+
+interface RevenueCatWebhookPayload {
+  api_version?: string;
+  event?: RevenueCatWebhookEvent;
 }
 
 interface ExternalPriceResolution {
@@ -494,6 +536,29 @@ const resolvePlanTypeForGoogleIdentifiers = ({
   return resolvePlanTypeForProduct(productId, 'google');
 };
 
+const resolvePlanTypeForRevenueCatProduct = (productId: string): PlanType => {
+  const normalized = productId.toLowerCase();
+
+  if (
+    config.apple.monthlyProductIds.includes(productId) ||
+    config.google.monthlyProductIds.includes(productId) ||
+    normalized.includes('month')
+  ) {
+    return PLAN_TYPES.MONTHLY;
+  }
+
+  if (
+    config.apple.yearlyProductIds.includes(productId) ||
+    config.google.yearlyProductIds.includes(productId) ||
+    normalized.includes('year') ||
+    normalized.includes('annual')
+  ) {
+    return PLAN_TYPES.YEARLY;
+  }
+
+  return PLAN_TYPES.MONTHLY;
+};
+
 const toExpiryStatus = (expiryDate: Date, revokedAt?: Date | null): SubscriptionStatus => {
   if (revokedAt || expiryDate <= new Date()) {
     return SUBSCRIPTION_STATUS.EXPIRED;
@@ -643,6 +708,72 @@ const syncUserSubscriptionStatus = async (userId: string): Promise<void> => {
     expiryDate: { $gt: new Date() }
   });
   await UserModel.findByIdAndUpdate(userId, { subscriptionStatus: active ? 'premium' : 'free' });
+};
+
+const ensureRevenueCatConfigured = (): void => {
+  if (!config.revenueCat.secretKey) {
+    throw createHttpError('RevenueCat is not configured. Missing REVENUECAT_SECRET_KEY', 400);
+  }
+};
+
+const parseOptionalDate = (value?: string | null): Date | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+};
+
+const serializeSubscription = (subscription: SubscriptionDocument | null): Record<string, unknown> | null => {
+  if (!subscription) {
+    return null;
+  }
+
+  const objectValue = subscription.toObject({
+    versionKey: false
+  }) as Record<string, unknown> & { _id?: { toString(): string }; user?: { toString(): string } | string };
+
+  return {
+    id: objectValue._id?.toString(),
+    platform: objectValue.platform,
+    planType: objectValue.planType,
+    productId: objectValue.productId,
+    price: objectValue.price,
+    expiryDate: objectValue.expiryDate,
+    status: objectValue.status,
+    isActive: objectValue.isActive,
+    providerSubscriptionId: objectValue.providerSubscriptionId,
+    startedAt: objectValue.startedAt,
+    createdAt: objectValue.createdAt,
+    updatedAt: objectValue.updatedAt,
+    user: typeof objectValue.user === 'string' ? objectValue.user : objectValue.user?.toString(),
+    transactionId: objectValue.transactionId,
+    purchaseToken: objectValue.purchaseToken,
+    providerPayload: objectValue.providerPayload
+  };
+};
+
+const fetchRevenueCatSubscriber = async (userId: string): Promise<RevenueCatSubscriberResponse> => {
+  ensureRevenueCatConfigured();
+
+  const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${config.revenueCat.secretKey}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw createHttpError(
+      `RevenueCat subscriber lookup failed (${response.status}): ${responseText || response.statusText}`,
+      502
+    );
+  }
+
+  return (await response.json()) as RevenueCatSubscriberResponse;
 };
 
 const upsertExternalTransaction = async (params: {
@@ -1348,6 +1479,57 @@ const normalizeGoogleSubscription = async (
   };
 };
 
+const normalizeRevenueCatSubscription = async (
+  userId: string,
+  subscriberResponse: RevenueCatSubscriberResponse
+): Promise<NormalizedSubscriptionResult> => {
+  const entitlement = subscriberResponse.subscriber?.entitlements?.[config.revenueCat.premiumEntitlementId];
+  const productId = entitlement?.product_identifier;
+
+  if (!productId) {
+    throw createHttpError(
+      `RevenueCat premium entitlement "${config.revenueCat.premiumEntitlementId}" was not found for this user`,
+      404
+    );
+  }
+
+  const subscriptionInfo = subscriberResponse.subscriber?.subscriptions?.[productId];
+  const expiryDate = parseOptionalDate(entitlement.expires_date) || parseOptionalDate(subscriptionInfo?.expires_date);
+  if (!expiryDate) {
+    throw createHttpError('RevenueCat subscription response is missing an expiry date', 400);
+  }
+
+  const subscription = await upsertExternalSubscription({
+    userId,
+    platform: 'revenuecat',
+    productId,
+    planType: resolvePlanTypeForRevenueCatProduct(productId),
+    expiryDate,
+    providerSubscriptionId: subscriptionInfo?.store_transaction_id || undefined,
+    providerPayload: stripNilValues({
+      entitlementId: config.revenueCat.premiumEntitlementId,
+      store: subscriptionInfo?.store,
+      purchaseDate: entitlement.purchase_date || subscriptionInfo?.purchase_date,
+      originalPurchaseDate: subscriptionInfo?.original_purchase_date,
+      unsubscribeDetectedAt: subscriptionInfo?.unsubscribe_detected_at
+    })
+  });
+
+  await syncUserSubscriptionStatus(userId);
+
+  return {
+    subscription,
+    normalized: {
+      userId,
+      platform: 'revenuecat',
+      productId,
+      expiryDate,
+      status: subscription.status,
+      isActive: subscription.isActive
+    }
+  };
+};
+
 export const verifyAppleSubscription = async ({
   userId,
   transactionId,
@@ -1374,6 +1556,81 @@ export const verifyGoogleSubscription = async ({
 }): Promise<NormalizedSubscriptionResult> => {
   const verified = await verifyGooglePurchase(purchaseToken);
   return normalizeGoogleSubscription(userId, verified);
+};
+
+export const syncRevenueCatSubscription = async (
+  userId: string
+): Promise<{
+  success: true;
+  message: string;
+  user: {
+    uid: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    displayName: string;
+    subscribed: boolean;
+    subscriptionStatus: 'free' | 'premium';
+  };
+  normalized: {
+    isActive: boolean;
+  };
+  subscription: {
+    isActive: boolean;
+  };
+}> => {
+  const user = await UserModel.findById(userId).select('email firstName lastName name subscriptionStatus');
+  if (!user) {
+    throw createHttpError('User not found', 404);
+  }
+
+  const subscriberResponse = await fetchRevenueCatSubscriber(userId);
+  const entitlement = subscriberResponse.subscriber?.entitlements?.[config.revenueCat.premiumEntitlementId];
+
+  let isActive = false;
+  if (entitlement?.product_identifier) {
+    const normalized = await normalizeRevenueCatSubscription(userId, subscriberResponse);
+    isActive = normalized.normalized.isActive;
+  } else {
+    await SubscriptionModel.updateMany(
+      {
+        user: userId,
+        platform: 'revenuecat',
+        isActive: true
+      },
+      {
+        status: SUBSCRIPTION_STATUS.EXPIRED,
+        isActive: false,
+        expiryDate: new Date()
+      }
+    );
+    await syncUserSubscriptionStatus(userId);
+  }
+
+  const refreshedUser = await UserModel.findById(userId).select('email firstName lastName name subscriptionStatus');
+  if (!refreshedUser) {
+    throw createHttpError('User not found', 404);
+  }
+
+  return {
+    success: true,
+    message: 'Subscription synchronized successfully',
+    user: {
+      uid: refreshedUser._id.toString(),
+      email: refreshedUser.email,
+      firstName: refreshedUser.firstName || '',
+      lastName: refreshedUser.lastName || '',
+      displayName: refreshedUser.name || [refreshedUser.firstName, refreshedUser.lastName].filter(Boolean).join(' '),
+      subscribed: isActive,
+      subscriptionStatus: refreshedUser.subscriptionStatus
+    },
+    normalized: {
+      isActive
+    },
+    subscription: {
+      isActive
+    }
+  };
 };
 
 export const processAppleWebhook = async (
@@ -1436,6 +1693,76 @@ export const processGoogleWebhook = async (
   };
 };
 
+export const processRevenueCatWebhook = async (
+  payload: RevenueCatWebhookPayload
+): Promise<{ received: true; eventId?: string; type?: string }> => {
+  const event = payload.event;
+  if (!event?.app_user_id) {
+    throw createHttpError('RevenueCat webhook did not contain app_user_id', 400);
+  }
+
+  const entitlementIds = new Set([...(event.entitlement_ids || []), event.entitlement_id].filter(Boolean));
+  if (entitlementIds.size && !entitlementIds.has(config.revenueCat.premiumEntitlementId)) {
+    return {
+      received: true,
+      eventId: event.id,
+      type: event.type
+    };
+  }
+
+  const eventType = (event.type || '').toUpperCase();
+  const productId = event.product_id || 'revenuecat.premium';
+  const expiryDate =
+    typeof event.expiration_at_ms === 'number' ? new Date(event.expiration_at_ms) : calculateExpiryByPlan(resolvePlanTypeForRevenueCatProduct(productId));
+
+  if (eventType === 'INITIAL_PURCHASE' || eventType === 'RENEWAL') {
+    await upsertExternalSubscription({
+      userId: event.app_user_id,
+      platform: 'revenuecat',
+      productId,
+      planType: resolvePlanTypeForRevenueCatProduct(productId),
+      expiryDate,
+      providerSubscriptionId: event.id,
+      providerPayload: stripNilValues({
+        entitlementId: event.entitlement_id,
+        entitlementIds: event.entitlement_ids,
+        environment: event.environment,
+        price: event.price,
+        currency: event.currency,
+        purchasedAtMs: event.purchased_at_ms,
+        expirationAtMs: event.expiration_at_ms
+      })
+    });
+    await syncUserSubscriptionStatus(event.app_user_id);
+  } else if (eventType === 'EXPIRATION' || eventType === 'CANCELLATION') {
+    const existingSubscription = await SubscriptionModel.findOne({
+      user: event.app_user_id,
+      platform: 'revenuecat',
+      productId
+    }).sort({ createdAt: -1 });
+
+    if (existingSubscription) {
+      existingSubscription.status = SUBSCRIPTION_STATUS.EXPIRED;
+      existingSubscription.isActive = false;
+      existingSubscription.expiryDate = typeof event.expiration_at_ms === 'number' ? new Date(event.expiration_at_ms) : new Date();
+      existingSubscription.providerPayload = {
+        ...(existingSubscription.providerPayload || {}),
+        cancellationEventId: event.id,
+        cancellationType: event.type
+      };
+      await existingSubscription.save();
+    }
+
+    await syncUserSubscriptionStatus(event.app_user_id);
+  }
+
+  return {
+    received: true,
+    eventId: event.id,
+    type: event.type
+  };
+};
+
 export const listSubscriptions = async ({ page = 1, limit = 20 }: ListParams): Promise<PaginatedResult<SubscriptionDocument>> => {
   const pageNumber = Number(page) || 1;
   const limitNumber = Number(limit) || 20;
@@ -1464,7 +1791,7 @@ export const getUserSubscriptionStatus = async (
 ): Promise<{
   subscribed: boolean;
   subscriptionStatus: 'free' | 'premium';
-  activeSubscription: SubscriptionDocument | null;
+  activeSubscription: Record<string, unknown> | null;
 }> => {
   const user = await UserModel.findById(userId).select('subscriptionStatus');
   if (!user) {
@@ -1486,7 +1813,7 @@ export const getUserSubscriptionStatus = async (
   return {
     subscribed: Boolean(activeSubscription),
     subscriptionStatus: activeSubscription ? 'premium' : 'free',
-    activeSubscription
+    activeSubscription: serializeSubscription(activeSubscription)
   };
 };
 

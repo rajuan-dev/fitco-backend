@@ -3,7 +3,7 @@ import { PLAN_TYPES, SUBSCRIPTION_STATUS, PlanType, SubscriptionStatus } from '.
 
 export interface SubscriptionDocument extends Document {
   user: mongoose.Types.ObjectId;
-  platform: 'stripe' | 'apple' | 'google';
+  platform: 'stripe' | 'apple' | 'google' | 'revenuecat';
   planType: PlanType;
   productId?: string;
   price: number;
@@ -24,7 +24,7 @@ export interface SubscriptionDocument extends Document {
 const SubscriptionSchema = new Schema<SubscriptionDocument>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    platform: { type: String, enum: ['stripe', 'apple', 'google'], default: 'stripe', index: true },
+    platform: { type: String, enum: ['stripe', 'apple', 'google', 'revenuecat'], default: 'stripe', index: true },
     planType: { type: String, enum: Object.values(PLAN_TYPES), required: true },
     productId: { type: String, trim: true },
     price: { type: Number, required: true },

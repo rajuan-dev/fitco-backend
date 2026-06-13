@@ -5,6 +5,7 @@ import * as subscriptionService from './service';
 import validate from '../../middlewares/validationMiddleware';
 import { getSingleQueryParam } from '../../utils/query';
 import { PLAN_TYPES } from '../../utils/constants';
+import config from '../../config';
 
 const quoteValidators = [
   body('planType').isIn(['monthly', 'yearly']),
@@ -96,6 +97,11 @@ export const verifyGooglePurchase = [
   })
 ];
 
+export const syncRevenueCatPurchase = asyncHandler(async (req: Request, res: Response) => {
+  const result = await subscriptionService.syncRevenueCatSubscription(req.auth!.id);
+  res.json(result);
+});
+
 export const getSubscriptionStatus = asyncHandler(async (req: Request, res: Response) => {
   const data = await subscriptionService.getUserSubscriptionStatus(req.auth!.id);
   res.json(data);
@@ -108,6 +114,22 @@ export const appleWebhook = asyncHandler(async (req: Request, res: Response) => 
 
 export const googleWebhook = asyncHandler(async (req: Request, res: Response) => {
   const result = await subscriptionService.processGoogleWebhook(req.body as Record<string, unknown>);
+  res.json(result);
+});
+
+export const revenueCatWebhook = asyncHandler(async (req: Request, res: Response) => {
+  if (config.revenueCat.webhookAuthToken) {
+    const authorization = req.headers.authorization;
+    const expectedAuthorization = `Bearer ${config.revenueCat.webhookAuthToken}`;
+    const tokenHeader =
+      typeof req.headers['x-revenuecat-webhook-token'] === 'string' ? req.headers['x-revenuecat-webhook-token'] : '';
+
+    if (authorization !== expectedAuthorization && tokenHeader !== config.revenueCat.webhookAuthToken) {
+      return res.status(401).json({ message: 'Unauthorized RevenueCat webhook' });
+    }
+  }
+
+  const result = await subscriptionService.processRevenueCatWebhook(req.body as Record<string, unknown>);
   res.json(result);
 });
 
