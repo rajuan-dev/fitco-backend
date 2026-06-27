@@ -73,7 +73,45 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"message\": \"Registration successful. Please verify the OTP sent to your email.\",\n  \"email\": \"sarah.alotaibi@example.com\"\n}"
+              "body": "{\n  \"message\": \"Registration successful. Please verify the OTP sent to your email.\",\n  \"email\": \"sarah.alotaibi@example.com\",\n  \"referralCode\": \"FITCO20\",\n  \"referralCodeStatus\": \"valid\"\n}"
+            },
+            {
+              "name": "201 Created - Invalid Referral",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"sarah.alotaibi@example.com\",\n  \"password\": \"secure_password123\",\n  \"referralCode\": \"UNKNOWN20\",\n  \"firstName\": \"Sarah\",\n  \"lastName\": \"Al-Otaibi\",\n  \"age\": 28,\n  \"height\": 168,\n  \"weight\": 65.5,\n  \"gender\": \"female\",\n  \"activityLevel\": \"moderately_active\",\n  \"goal\": \"lose_weight\",\n  \"targetWeight\": 60,\n  \"weeklyPace\": 0.5,\n  \"medicalConditions\": \"None\",\n  \"allergies\": \"Nuts\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "register"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"message\": \"Registration successful. Please verify the OTP sent to your email.\",\n  \"email\": \"sarah.alotaibi@example.com\",\n  \"referralCode\": \"UNKNOWN20\",\n  \"referralCodeStatus\": \"invalid\"\n}"
             }
           ]
         },

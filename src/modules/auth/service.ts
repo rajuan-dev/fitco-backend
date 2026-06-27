@@ -10,6 +10,7 @@ import { ROLES, Role } from '../../utils/constants';
 import { sendPasswordResetEmail, sendRegistrationOtpEmail } from '../../utils/mailer';
 import { createHttpError } from '../../utils/httpError';
 import { getUserActiveSubscription } from '../subscription/service';
+import { getCouponByCode } from '../coupon/service';
 
 interface AuthUser {
   uid: string;
@@ -61,6 +62,13 @@ interface RegisterPayload {
   weeklyPace?: number | null;
   medicalConditions?: string;
   allergies?: string;
+}
+
+interface RegisterResponse {
+  message: string;
+  email: string;
+  referralCode?: string;
+  referralCodeStatus: 'valid' | 'invalid' | 'not_provided';
 }
 
 interface GoogleTokenInfo {
@@ -295,10 +303,11 @@ const buildUserAuthResponse = async (user: UserDocument): Promise<UserAuthRespon
   };
 };
 
-export const registerUser = async (payload: RegisterPayload): Promise<{ message: string; email: string }> => {
+export const registerUser = async (payload: RegisterPayload): Promise<RegisterResponse> => {
   const email = normalizeEmail(payload.email);
   const firstName = payload.firstName.trim();
   const lastName = payload.lastName.trim();
+  const normalizedReferralCode = payload.referralCode?.trim().toUpperCase() || undefined;
   const existing = await UserModel.findOne({ email });
 
   if (existing?.emailVerified) {
@@ -318,7 +327,7 @@ export const registerUser = async (payload: RegisterPayload): Promise<{ message:
   user.email = email;
   user.password = payload.password;
   user.emailVerified = false;
-  user.referralCode = payload.referralCode?.trim().toUpperCase() || undefined;
+  user.referralCode = normalizedReferralCode;
   user.age = payload.age;
   user.height = payload.height;
   user.currentWeight = payload.weight;
@@ -334,12 +343,18 @@ export const registerUser = async (payload: RegisterPayload): Promise<{ message:
   user.refreshTokens = [];
   await user.save();
 
+  const referralCodeStatus = normalizedReferralCode
+    ? ((await getCouponByCode(normalizedReferralCode)) ? 'valid' : 'invalid')
+    : 'not_provided';
+
   const otp = await createOtpRecord({ userId: user._id.toString(), type: 'email_verification' });
   await sendRegistrationOtpEmail({ email: user.email, otp });
 
   return {
     message: 'Registration successful. Please verify the OTP sent to your email.',
-    email: user.email
+    email: user.email,
+    ...(normalizedReferralCode ? { referralCode: normalizedReferralCode } : {}),
+    referralCodeStatus
   };
 };
 
