@@ -6,7 +6,9 @@ import validate from '../../middlewares/validationMiddleware';
 
 const createValidators = [
   body('code').notEmpty(),
-  body('discountPercentage').isInt({ min: 0, max: 100 }),
+  body('discountPercentage')
+    .custom((value) => Number(value) === 20)
+    .withMessage('discountPercentage must be 20.'),
   body('expiryDate')
     .isISO8601()
     .custom((value) => {
@@ -19,7 +21,11 @@ const createValidators = [
 ];
 
 const updateValidators = [
-  body('discountPercentage').optional().isInt({ min: 0, max: 100 }),
+  body('code').optional().notEmpty(),
+  body('discountPercentage')
+    .optional()
+    .custom((value) => Number(value) === 20)
+    .withMessage('discountPercentage must be 20.'),
   body('expiryDate')
     .optional()
     .isISO8601()

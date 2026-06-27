@@ -1,4 +1,5 @@
 import CouponModel, { CouponDocument } from './model';
+import { createHttpError } from '../../utils/httpError';
 
 interface CouponPayload {
   code: string;
@@ -8,32 +9,33 @@ interface CouponPayload {
 }
 
 export const createCoupon = async (data: CouponPayload): Promise<CouponDocument> => {
-  const payload = { ...data, code: data.code.toUpperCase() };
-  const existingCoupons = await CouponModel.find().sort({ createdAt: -1 });
-
-  if (existingCoupons.length > 0) {
-    const primary = existingCoupons[0];
-    if (existingCoupons.length > 1) {
-      await CouponModel.deleteMany({ _id: { $ne: primary._id } });
-    }
-    primary.code = payload.code;
-    primary.discountPercentage = payload.discountPercentage;
-    primary.expiryDate = new Date(payload.expiryDate);
-    primary.isActive = payload.isActive ?? true;
-    await primary.save();
-
-    return primary;
+  const payload = { ...data, code: data.code.toUpperCase(), discountPercentage: 20 };
+  const existing = await CouponModel.findOne({ code: payload.code });
+  if (existing) {
+    throw createHttpError('A referral code with this value already exists.', 409, {
+      code: 'COUPON_CODE_EXISTS',
+    });
   }
 
   return CouponModel.create(payload);
 };
 
 export const updateCoupon = (id: string, data: Partial<CouponPayload>): Promise<CouponDocument | null> => {
-  const payload = { ...data };
+  const payload = { ...data, discountPercentage: data.discountPercentage === undefined ? undefined : 20 };
   if (payload.code) {
     payload.code = payload.code.toUpperCase();
   }
-  return CouponModel.findByIdAndUpdate(id, payload, { new: true });
+  return (async () => {
+    if (payload.code) {
+      const existing = await CouponModel.findOne({ code: payload.code }).select('_id');
+      if (existing && existing._id.toString() !== id) {
+        throw createHttpError('A referral code with this value already exists.', 409, {
+          code: 'COUPON_CODE_EXISTS',
+        });
+      }
+    }
+    return CouponModel.findByIdAndUpdate(id, payload, { new: true });
+  })();
 };
 
 export const toggleCoupon = (id: string, isActive: boolean): Promise<CouponDocument | null> => {
