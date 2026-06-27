@@ -15,6 +15,11 @@ export interface AppConfig {
   mongoUri: string;
   dnsServers: string[];
   jwt: JwtConfig;
+  resend: {
+    apiKey: string;
+    fromEmail: string;
+    fromName: string;
+  };
   chat: {
     freeLimit: number;
     paidMonthlyLimit: number;
@@ -42,6 +47,7 @@ export interface AppConfig {
     sharedSecret: string;
   };
   google: {
+    oauthClientIds: string[];
     packageName: string;
     serviceAccountEmail: string;
     serviceAccountPrivateKey: string;
@@ -71,6 +77,11 @@ const config: AppConfig = {
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'changemerefresh',
     accessExpiresIn: '365d',
     refreshExpiresIn: '30d'
+  },
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'auth@fitcoksa.com',
+    fromName: process.env.RESEND_FROM_NAME || 'Fitco'
   },
   chat: {
     freeLimit: Number(process.env.FREE_CHAT_DAILY_LIMIT || 2),
@@ -111,6 +122,10 @@ const config: AppConfig = {
     sharedSecret: process.env.APPLE_SHARED_SECRET || ''
   },
   google: {
+    oauthClientIds: (process.env.GOOGLE_OAUTH_CLIENT_IDS || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean),
     packageName: process.env.GOOGLE_PACKAGE_NAME || '',
     serviceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '',
     serviceAccountPrivateKey: (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n'),

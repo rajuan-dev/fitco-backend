@@ -725,6 +725,36 @@ const parseOptionalDate = (value?: string | null): Date | undefined => {
   return Number.isNaN(date.getTime()) ? undefined : date;
 };
 
+const formatAuthStyleUser = async (userId: string): Promise<{
+  uid: string;
+  email: string;
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  subscriptionStatus: 'active' | 'inactive';
+  subscriptionExpiry: string | null;
+  isSubscribed: boolean;
+}> => {
+  const user = await UserModel.findById(userId).select('email firstName lastName name');
+  if (!user) {
+    throw createHttpError('User not found', 404);
+  }
+
+  const activeSubscription = await getUserActiveSubscription(userId);
+  const isSubscribed = Boolean(activeSubscription);
+
+  return {
+    uid: user._id.toString(),
+    email: user.email,
+    displayName: user.name || [user.firstName, user.lastName].filter(Boolean).join(' '),
+    firstName: user.firstName || '',
+    lastName: user.lastName || '',
+    subscriptionStatus: isSubscribed ? 'active' : 'inactive',
+    subscriptionExpiry: activeSubscription?.expiryDate ? activeSubscription.expiryDate.toISOString() : null,
+    isSubscribed
+  };
+};
+
 const serializeSubscription = (subscription: SubscriptionDocument | null): Record<string, unknown> | null => {
   if (!subscription) {
     return null;
@@ -1563,15 +1593,7 @@ export const syncRevenueCatSubscription = async (
 ): Promise<{
   success: true;
   message: string;
-  user: {
-    uid: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    displayName: string;
-    subscribed: boolean;
-    subscriptionStatus: 'free' | 'premium';
-  };
+  user: Awaited<ReturnType<typeof formatAuthStyleUser>>;
   normalized: {
     isActive: boolean;
   };
@@ -1579,7 +1601,7 @@ export const syncRevenueCatSubscription = async (
     isActive: boolean;
   };
 }> => {
-  const user = await UserModel.findById(userId).select('email firstName lastName name subscriptionStatus');
+  const user = await UserModel.findById(userId).select('_id');
   if (!user) {
     throw createHttpError('User not found', 404);
   }
@@ -1607,23 +1629,10 @@ export const syncRevenueCatSubscription = async (
     await syncUserSubscriptionStatus(userId);
   }
 
-  const refreshedUser = await UserModel.findById(userId).select('email firstName lastName name subscriptionStatus');
-  if (!refreshedUser) {
-    throw createHttpError('User not found', 404);
-  }
-
   return {
     success: true,
-    message: 'Subscription synchronized successfully',
-    user: {
-      uid: refreshedUser._id.toString(),
-      email: refreshedUser.email,
-      firstName: refreshedUser.firstName || '',
-      lastName: refreshedUser.lastName || '',
-      displayName: refreshedUser.name || [refreshedUser.firstName, refreshedUser.lastName].filter(Boolean).join(' '),
-      subscribed: isActive,
-      subscriptionStatus: refreshedUser.subscriptionStatus
-    },
+    message: 'Subscription synced successfully',
+    user: await formatAuthStyleUser(userId),
     normalized: {
       isActive
     },

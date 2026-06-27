@@ -13,11 +13,15 @@ export interface UserDocument extends Document {
   lastName?: string;
   email: string;
   password: string;
+  emailVerified: boolean;
+  referralCode?: string;
   role: string;
   age?: number;
   height?: number;
   currentWeight?: number;
   weight?: number;
+  targetWeight?: number;
+  weeklyPace?: number;
   gender?: 'male' | 'female' | 'other';
   activityLevel?: 'standard' | 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active' | 'extremely_active';
   goal?: 'lose_weight' | 'maintain_weight' | 'gain_weight' | 'build_muscle';
@@ -56,11 +60,15 @@ const UserSchema = new Schema<UserDocument>(
     lastName: { type: String, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true },
+    emailVerified: { type: Boolean, default: false },
+    referralCode: { type: String, trim: true, uppercase: true },
     role: { type: String, enum: [ROLES.ADMIN, ROLES.USER], default: ROLES.USER },
     age: Number,
     height: Number,
     currentWeight: Number,
     weight: Number,
+    targetWeight: Number,
+    weeklyPace: Number,
     gender: { type: String, enum: ['male', 'female', 'other'] },
     activityLevel: {
       type: String,

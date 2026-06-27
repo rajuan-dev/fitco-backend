@@ -1,47 +1,71 @@
-import nodemailer from 'nodemailer';
+import config from '../config';
+import { createHttpError } from './httpError';
 
-interface PasswordResetPayload {
+interface OtpEmailPayload {
   email: string;
   otp: string;
+  subject: string;
+  title: string;
+  preheader: string;
 }
 
-const smtpHost = process.env.SMTP_HOST;
-const smtpPort = Number(process.env.SMTP_PORT || 587);
-const smtpUser = process.env.SMTP_USER;
-const smtpPass = process.env.SMTP_PASS;
-const smtpFrom = process.env.SMTP_FROM || smtpUser || 'no-reply@creedtng.com';
+const buildHtml = ({ title, preheader, otp }: OtpEmailPayload): string => `
+  <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+    <h2 style="margin-bottom: 8px;">${title}</h2>
+    <p style="margin: 0 0 16px;">${preheader}</p>
+    <div style="display: inline-block; padding: 12px 20px; border-radius: 10px; background: #f3f4f6; font-size: 28px; font-weight: 700; letter-spacing: 8px;">
+      ${otp}
+    </div>
+    <p style="margin-top: 16px;">This code expires in 10 minutes.</p>
+  </div>
+`;
 
-const transporter =
-  smtpHost && smtpUser && smtpPass
-    ? nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpPort === 465,
-        auth: {
-          user: smtpUser,
-          pass: smtpPass
-        }
-      })
-    : null;
-
-export const sendPasswordResetEmail = async ({ email, otp }: PasswordResetPayload): Promise<void> => {
-  if (!transporter) {
-    console.log(`Password reset OTP for ${email}: ${otp}`);
+const sendOtpEmail = async (payload: OtpEmailPayload): Promise<void> => {
+  if (!config.resend.apiKey) {
+    console.log(`[MAIL_FALLBACK] ${payload.subject} for ${payload.email}: ${payload.otp}`);
     return;
   }
 
-  await transporter.sendMail({
-    from: smtpFrom,
-    to: email,
-    subject: 'Your Creedtng Password Reset OTP',
-    text: `Your password reset OTP is ${otp}. It will expire in 60 minutes.`,
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-        <h2>Creedtng Password Reset</h2>
-        <p>Your OTP code is:</p>
-        <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
-        <p>This OTP expires in 60 minutes.</p>
-      </div>
-    `
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.resend.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: `${config.resend.fromName} <${config.resend.fromEmail}>`,
+      to: [payload.email],
+      subject: payload.subject,
+      text: `${payload.preheader} Your OTP is ${payload.otp}. This code expires in 10 minutes.`,
+      html: buildHtml(payload)
+    })
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw createHttpError('Failed to send email OTP', 502, {
+      code: 'MAIL_DELIVERY_FAILED',
+      details
+    });
+  }
+};
+
+export const sendRegistrationOtpEmail = async ({ email, otp }: { email: string; otp: string }): Promise<void> => {
+  await sendOtpEmail({
+    email,
+    otp,
+    subject: 'Verify your Fitco account',
+    title: 'Confirm your email',
+    preheader: 'Use the verification code below to finish creating your Fitco account.'
+  });
+};
+
+export const sendPasswordResetEmail = async ({ email, otp }: { email: string; otp: string }): Promise<void> => {
+  await sendOtpEmail({
+    email,
+    otp,
+    subject: 'Reset your Fitco password',
+    title: 'Password reset verification',
+    preheader: 'Use the verification code below to continue resetting your password.'
   });
 };

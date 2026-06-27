@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import { body } from 'express-validator';
+import { body, validationResult } from 'express-validator';
 import asyncHandler from '../../utils/asyncHandler';
 import * as authService from './service';
-import validate from '../../middlewares/validationMiddleware';
 import { authenticate, authorizeRoles } from '../../middlewares/authMiddleware';
 import { ROLES } from '../../utils/constants';
 
@@ -18,45 +17,123 @@ const allowOnlyFields = (allowedFields: string[]) =>
     return true;
   });
 
+const validateAuthRequest = (req: Request, _res: Response, next: () => void): void => {
+  const result = validationResult(req);
+  if (result.isEmpty()) {
+    next();
+    return;
+  }
+
+  const errors = result.array().map((error) => ({
+    field: 'path' in error ? error.path : 'request',
+    message: error.msg
+  }));
+
+  _res.status(400).json({
+    message: errors[0]?.message || 'Validation failed',
+    errors
+  });
+  return;
+};
+
 const registerValidators = [
-  allowOnlyFields(['firstName', 'lastName', 'email', 'password']),
+  allowOnlyFields([
+    'email',
+    'password',
+    'referralCode',
+    'firstName',
+    'lastName',
+    'age',
+    'height',
+    'weight',
+    'gender',
+    'activityLevel',
+    'goal',
+    'targetWeight',
+    'weeklyPace',
+    'medicalConditions',
+    'allergies'
+  ]),
   body('firstName').isString().trim().notEmpty(),
   body('lastName').isString().trim().notEmpty(),
   body('email').isEmail(),
-  body('password').isLength({ min: 8 })
-];
-
-const loginValidators = [
-  allowOnlyFields(['email', 'password']),
-  body('email').isEmail(),
-  body('password').notEmpty()
-];
-
-const forgotValidators = [allowOnlyFields(['email']), body('email').isEmail()];
-const verifyOtpValidators = [body('email').isEmail(), body('otp').isLength({ min: 6, max: 6 })];
-const resetValidators = [
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters.'),
+  body('referralCode').optional().isString().trim().notEmpty(),
+  body('age').isInt({ min: 1, max: 120 }),
+  body('height').isFloat({ gt: 0, max: 300 }),
+  body('weight').isFloat({ gt: 0, max: 500 }),
+  body('gender').isIn(['male', 'female']),
+  body('activityLevel').isIn(['sedentary', 'lightly_active', 'moderately_active', 'very_active', 'extremely_active']),
+  body('goal').isIn(['lose_weight', 'maintain_weight', 'gain_weight', 'build_muscle']),
+  body('targetWeight').optional({ values: 'null' }).isFloat({ gt: 0, max: 500 }),
+  body('weeklyPace').optional({ values: 'null' }).isFloat({ gt: 0, max: 10 }),
+  body('medicalConditions').optional().isString(),
+  body('allergies').optional().isString(),
   body().custom((value) => {
-    if (!value?.otp && !value?.token) {
-      throw new Error('otp or token is required');
+    if (value.goal !== 'maintain_weight' && (value.targetWeight === undefined || value.targetWeight === null)) {
+      throw new Error('targetWeight is required unless goal is maintain_weight.');
     }
+
+    if (
+      (value.goal === 'lose_weight' || value.goal === 'gain_weight') &&
+      (value.weeklyPace === undefined || value.weeklyPace === null)
+    ) {
+      throw new Error('weeklyPace is required for lose_weight or gain_weight goals.');
+    }
+
     return true;
-  }),
-  body('password').isLength({ min: 8 })
+  })
 ];
-const changeValidators = [body('currentPassword').notEmpty(), body('newPassword').isLength({ min: 8 })];
+
+const loginValidators = [allowOnlyFields(['email', 'password']), body('email').isEmail(), body('password').notEmpty()];
+const googleLoginValidators = [
+  allowOnlyFields(['idToken', 'email']),
+  body('idToken').isString().trim().notEmpty(),
+  body('email').optional().isEmail()
+];
+const appleLoginValidators = [
+  allowOnlyFields(['identityToken', 'email', 'firstName', 'lastName']),
+  body('identityToken').isString().trim().notEmpty(),
+  body('email').optional().isEmail(),
+  body('firstName').optional().isString(),
+  body('lastName').optional().isString()
+];
+const verifyRegisterValidators = [allowOnlyFields(['email', 'code']), body('email').isEmail(), body('code').isLength({ min: 4, max: 4 })];
+const forgotValidators = [allowOnlyFields(['email']), body('email').isEmail()];
+const verifyOtpValidators = [allowOnlyFields(['email', 'code']), body('email').isEmail(), body('code').isLength({ min: 4, max: 4 })];
+const resetValidators = [
+  allowOnlyFields(['email', 'code', 'password']),
+  body('email').isEmail(),
+  body('code').isLength({ min: 4, max: 4 }),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters.')
+];
+const changeValidators = [
+  allowOnlyFields(['currentPassword', 'newPassword']),
+  body('currentPassword').notEmpty(),
+  body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters.')
+];
 
 export const register = [
   ...registerValidators,
-  validate,
+  validateAuthRequest,
   asyncHandler(async (req: Request, res: Response) => {
-    const user = await authService.registerUser(req.body);
-    res.status(201).json({ user });
+    const response = await authService.registerUser(req.body);
+    res.status(201).json(response);
+  })
+];
+
+export const verifyRegister = [
+  ...verifyRegisterValidators,
+  validateAuthRequest,
+  asyncHandler(async (req: Request, res: Response) => {
+    const auth = await authService.verifyRegisterOtp(req.body.email, req.body.code);
+    res.json(auth);
   })
 ];
 
 export const login = [
   ...loginValidators,
-  validate,
+  validateAuthRequest,
   asyncHandler(async (req: Request, res: Response) => {
     const auth = await authService.loginUser(req.body);
     if (!auth) {
@@ -66,9 +143,27 @@ export const login = [
   })
 ];
 
+export const googleLogin = [
+  ...googleLoginValidators,
+  validateAuthRequest,
+  asyncHandler(async (req: Request, res: Response) => {
+    const auth = await authService.loginWithGoogle(req.body);
+    res.json(auth);
+  })
+];
+
+export const appleLogin = [
+  ...appleLoginValidators,
+  validateAuthRequest,
+  asyncHandler(async (req: Request, res: Response) => {
+    const auth = await authService.loginWithApple(req.body);
+    res.json(auth);
+  })
+];
+
 export const adminLogin = [
   ...loginValidators,
-  validate,
+  validateAuthRequest,
   asyncHandler(async (req: Request, res: Response) => {
     const auth = await authService.loginAdmin(req.body);
     if (!auth) {
@@ -89,28 +184,32 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
 
 export const forgotPassword = [
   ...forgotValidators,
-  validate,
+  validateAuthRequest,
   asyncHandler(async (req: Request, res: Response) => {
     await authService.forgotPassword(req.body.email);
     res.json({ message: 'If the email exists, reset instructions were sent' });
   })
 ];
 
-export const resetPassword = [
-  ...resetValidators,
-  validate,
+export const verifyResetOtp = [
+  ...verifyOtpValidators,
+  validateAuthRequest,
   asyncHandler(async (req: Request, res: Response) => {
-    await authService.resetPassword(req.body.otp || req.body.token, req.body.password);
-    res.json({ message: 'Password updated' });
+    await authService.verifyResetOtp(req.body.email, req.body.code);
+    res.json({ message: 'OTP verified' });
   })
 ];
 
-export const verifyResetOtp = [
-  ...verifyOtpValidators,
-  validate,
+export const resetPassword = [
+  ...resetValidators,
+  validateAuthRequest,
   asyncHandler(async (req: Request, res: Response) => {
-    await authService.verifyResetOtp(req.body.email, req.body.otp);
-    res.json({ message: 'OTP verified' });
+    await authService.resetPassword({
+      email: req.body.email,
+      code: req.body.code,
+      newPassword: req.body.password
+    });
+    res.json({ message: 'Password updated' });
   })
 ];
 
@@ -118,7 +217,7 @@ export const changePassword = [
   authenticate,
   authorizeRoles(ROLES.USER),
   ...changeValidators,
-  validate,
+  validateAuthRequest,
   asyncHandler(async (req: Request, res: Response) => {
     await authService.changePassword(req.auth!.id, req.body.currentPassword, req.body.newPassword);
     res.json({ message: 'Password updated' });
