@@ -86,17 +86,50 @@ const registerValidators = [
 ];
 
 const loginValidators = [allowOnlyFields(['email', 'password']), body('email').isEmail(), body('password').notEmpty()];
+const socialAuthFields = [
+  'email',
+  'password',
+  'referralCode',
+  'firstName',
+  'lastName',
+  'age',
+  'height',
+  'weight',
+  'gender',
+  'activityLevel',
+  'goal',
+  'targetWeight',
+  'weeklyPace',
+  'medicalConditions',
+  'allergies'
+];
+const socialOnboardingValidators = [
+  body('password').optional().isLength({ min: 6 }).withMessage('Password must be at least 6 characters.'),
+  body('referralCode').optional().isString().trim().notEmpty(),
+  body('firstName').optional().isString().trim().notEmpty(),
+  body('lastName').optional().isString().trim().notEmpty(),
+  body('age').optional().isInt({ min: 1, max: 120 }),
+  body('height').optional().isFloat({ gt: 0, max: 300 }),
+  body('weight').optional().isFloat({ gt: 0, max: 500 }),
+  body('gender').optional().isIn(['male', 'female']),
+  body('activityLevel').optional().isIn(['sedentary', 'lightly_active', 'moderately_active', 'very_active', 'extremely_active']),
+  body('goal').optional().isIn(['lose_weight', 'maintain_weight', 'gain_weight', 'build_muscle']),
+  body('targetWeight').optional({ values: 'null' }).isFloat({ gt: 0, max: 500 }),
+  body('weeklyPace').optional({ values: 'null' }).isFloat({ gt: 0, max: 10 }),
+  body('medicalConditions').optional().isString(),
+  body('allergies').optional().isString()
+];
 const googleLoginValidators = [
-  allowOnlyFields(['idToken', 'email']),
+  allowOnlyFields(['idToken', ...socialAuthFields]),
   body('idToken').isString().trim().notEmpty(),
-  body('email').optional().isEmail()
+  body('email').optional().isEmail(),
+  ...socialOnboardingValidators
 ];
 const appleLoginValidators = [
-  allowOnlyFields(['identityToken', 'email', 'firstName', 'lastName']),
+  allowOnlyFields(['identityToken', ...socialAuthFields]),
   body('identityToken').isString().trim().notEmpty(),
   body('email').optional().isEmail(),
-  body('firstName').optional().isString(),
-  body('lastName').optional().isString()
+  ...socialOnboardingValidators
 ];
 const verifyRegisterValidators = [allowOnlyFields(['email', 'code']), body('email').isEmail(), body('code').isLength({ min: 4, max: 4 })];
 const forgotValidators = [allowOnlyFields(['email']), body('email').isEmail()];

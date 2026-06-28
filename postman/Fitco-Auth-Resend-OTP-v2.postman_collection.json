@@ -323,7 +323,76 @@
           ]
         },
         {
-          "name": "Google Login",
+          "name": "Google First-Time Register Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"eyJhbGciOiJSUzI1NiIsImtpZCI6...\",\n  \"email\": \"sarah.alotaibi@gmail.com\",\n  \"password\": \"secure_password123\",\n  \"referralCode\": \"FITCO20\",\n  \"firstName\": \"Sarah\",\n  \"lastName\": \"Al-Otaibi\",\n  \"age\": 28,\n  \"height\": 168,\n  \"weight\": 65.5,\n  \"gender\": \"female\",\n  \"activityLevel\": \"moderately_active\",\n  \"goal\": \"lose_weight\",\n  \"targetWeight\": 60,\n  \"weeklyPace\": 0.5,\n  \"medicalConditions\": \"None\",\n  \"allergies\": \"Nuts\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "google"
+              ]
+            },
+            "description": "Use this request the first time a Google user finishes onboarding. If the email already exists, only the token/email are required on later logins."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"idToken\": \"eyJhbGciOiJSUzI1NiIsImtpZCI6...\",\n  \"email\": \"sarah.alotaibi@gmail.com\",\n  \"password\": \"secure_password123\",\n  \"referralCode\": \"FITCO20\",\n  \"firstName\": \"Sarah\",\n  \"lastName\": \"Al-Otaibi\",\n  \"age\": 28,\n  \"height\": 168,\n  \"weight\": 65.5,\n  \"gender\": \"female\",\n  \"activityLevel\": \"moderately_active\",\n  \"goal\": \"lose_weight\",\n  \"targetWeight\": 60,\n  \"weeklyPace\": 0.5,\n  \"medicalConditions\": \"None\",\n  \"allergies\": \"Nuts\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/google",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "google"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"user\": {\n    \"uid\": \"usr_9a2b8c4d\",\n    \"email\": \"sarah.alotaibi@gmail.com\",\n    \"displayName\": \"Sarah Al-Otaibi\",\n    \"firstName\": \"Sarah\",\n    \"lastName\": \"Al-Otaibi\",\n    \"subscriptionStatus\": \"inactive\",\n    \"subscriptionExpiry\": null,\n    \"isSubscribed\": false\n  },\n  \"token\": \"{{accessToken}}\",\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Google Login - Existing User",
           "request": {
             "method": "POST",
             "header": [
@@ -348,7 +417,7 @@
                 "google"
               ]
             },
-            "description": "Verify the Google client-side ID token on the server and create or resolve the user session."
+            "description": "Use this short request after the Google user has already completed onboarding and exists in Fitco."
           },
           "response": [
             {
@@ -392,7 +461,76 @@
           ]
         },
         {
-          "name": "Apple Login",
+          "name": "Apple First-Time Register Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identityToken\": \"eyJraWQiOiJhaWRjMSIsImFsZyI6IlJTMjU2...\",\n  \"email\": \"sarah@privaterelay.appleid.com\",\n  \"password\": \"secure_password123\",\n  \"referralCode\": \"FITCO20\",\n  \"firstName\": \"Sarah\",\n  \"lastName\": \"Al-Otaibi\",\n  \"age\": 28,\n  \"height\": 168,\n  \"weight\": 65.5,\n  \"gender\": \"female\",\n  \"activityLevel\": \"moderately_active\",\n  \"goal\": \"lose_weight\",\n  \"targetWeight\": 60,\n  \"weeklyPace\": 0.5,\n  \"medicalConditions\": \"None\",\n  \"allergies\": \"Nuts\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/apple",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "apple"
+              ]
+            },
+            "description": "Use this request the first time an Apple user finishes onboarding. If the email already exists, only identityToken/email are required on later logins."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"identityToken\": \"eyJraWQiOiJhaWRjMSIsImFsZyI6IlJTMjU2...\",\n  \"email\": \"sarah@privaterelay.appleid.com\",\n  \"password\": \"secure_password123\",\n  \"referralCode\": \"FITCO20\",\n  \"firstName\": \"Sarah\",\n  \"lastName\": \"Al-Otaibi\",\n  \"age\": 28,\n  \"height\": 168,\n  \"weight\": 65.5,\n  \"gender\": \"female\",\n  \"activityLevel\": \"moderately_active\",\n  \"goal\": \"lose_weight\",\n  \"targetWeight\": 60,\n  \"weeklyPace\": 0.5,\n  \"medicalConditions\": \"None\",\n  \"allergies\": \"Nuts\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/apple",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "apple"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"user\": {\n    \"uid\": \"usr_9a2b8c4d\",\n    \"email\": \"sarah@privaterelay.appleid.com\",\n    \"displayName\": \"Sarah Al-Otaibi\",\n    \"firstName\": \"Sarah\",\n    \"lastName\": \"Al-Otaibi\",\n    \"subscriptionStatus\": \"inactive\",\n    \"subscriptionExpiry\": null,\n    \"isSubscribed\": false\n  },\n  \"token\": \"{{accessToken}}\",\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Apple Login - Existing User",
           "request": {
             "method": "POST",
             "header": [
@@ -417,7 +555,7 @@
                 "apple"
               ]
             },
-            "description": "Verify the Apple identity token on the server and create or resolve the user session."
+            "description": "Use this short request after the Apple user has already completed onboarding and exists in Fitco."
           },
           "response": [
             {

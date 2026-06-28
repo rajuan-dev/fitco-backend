@@ -64,6 +64,8 @@ interface RegisterPayload {
   allergies?: string;
 }
 
+type SocialOnboardingPayload = Partial<Omit<RegisterPayload, 'email'>>;
+
 interface RegisterResponse {
   message: string;
   email: string;
@@ -255,20 +257,70 @@ const verifyGoogleIdToken = async (idToken: string): Promise<GoogleTokenInfo> =>
   return payload;
 };
 
+const hasValue = (value: unknown): boolean => value !== undefined && value !== null && String(value).trim() !== '';
+
+const assertSocialOnboardingComplete = (payload: SocialOnboardingPayload, resolvedFirstName: string, resolvedLastName: string): void => {
+  const missingFields: string[] = [];
+
+  if (!hasValue(resolvedFirstName)) missingFields.push('firstName');
+  if (!hasValue(resolvedLastName)) missingFields.push('lastName');
+  if (!hasValue(payload.age)) missingFields.push('age');
+  if (!hasValue(payload.height)) missingFields.push('height');
+  if (!hasValue(payload.weight)) missingFields.push('weight');
+  if (!hasValue(payload.gender)) missingFields.push('gender');
+  if (!hasValue(payload.activityLevel)) missingFields.push('activityLevel');
+  if (!hasValue(payload.goal)) missingFields.push('goal');
+
+  if (payload.goal !== 'maintain_weight' && !hasValue(payload.targetWeight)) {
+    missingFields.push('targetWeight');
+  }
+
+  if ((payload.goal === 'lose_weight' || payload.goal === 'gain_weight') && !hasValue(payload.weeklyPace)) {
+    missingFields.push('weeklyPace');
+  }
+
+  if (missingFields.length > 0) {
+    throw createHttpError(`Onboarding data required for first-time social registration: ${missingFields.join(', ')}`, 400, {
+      code: 'AUTH_SOCIAL_ONBOARDING_REQUIRED',
+      details: { missingFields }
+    });
+  }
+};
+
+const applyOnboardingToUser = (user: UserDocument, payload: SocialOnboardingPayload): void => {
+  const normalizedReferralCode = payload.referralCode?.trim().toUpperCase() || undefined;
+
+  user.referralCode = normalizedReferralCode;
+  user.age = Number(payload.age);
+  user.height = Number(payload.height);
+  user.currentWeight = Number(payload.weight);
+  user.weight = Number(payload.weight);
+  user.targetWeight = payload.targetWeight === undefined || payload.targetWeight === null ? undefined : Number(payload.targetWeight);
+  user.weeklyPace = payload.weeklyPace === undefined || payload.weeklyPace === null ? undefined : Number(payload.weeklyPace);
+  user.gender = payload.gender;
+  user.activityLevel = payload.activityLevel;
+  user.goal = payload.goal;
+  user.goals = payload.goal;
+  user.medicalConditions = payload.medicalConditions?.trim() || '';
+  user.foodAllergies = payload.allergies?.trim() || '';
+};
+
 const resolveOrCreateOauthUser = async ({
   email,
   firstName,
-  lastName
+  lastName,
+  onboarding = {}
 }: {
   email: string;
   firstName?: string;
   lastName?: string;
+  onboarding?: SocialOnboardingPayload;
 }): Promise<UserDocument> => {
   const normalizedEmail = normalizeEmail(email);
   const existing = await UserModel.findOne({ email: normalizedEmail });
   const fallbackName = splitDisplayName([firstName, lastName].filter(Boolean).join(' '));
-  const resolvedFirstName = firstName?.trim() || existing?.firstName || fallbackName.firstName;
-  const resolvedLastName = lastName?.trim() || existing?.lastName || fallbackName.lastName;
+  const resolvedFirstName = onboarding.firstName?.trim() || firstName?.trim() || existing?.firstName || fallbackName.firstName;
+  const resolvedLastName = onboarding.lastName?.trim() || lastName?.trim() || existing?.lastName || fallbackName.lastName;
 
   if (existing) {
     existing.firstName = resolvedFirstName;
@@ -279,15 +331,20 @@ const resolveOrCreateOauthUser = async ({
     return existing;
   }
 
-  return UserModel.create({
+  assertSocialOnboardingComplete(onboarding, resolvedFirstName, resolvedLastName);
+
+  const user = new UserModel({
     email: normalizedEmail,
-    password: crypto.randomBytes(24).toString('hex'),
+    password: onboarding.password?.trim() || crypto.randomBytes(24).toString('hex'),
     firstName: resolvedFirstName,
     lastName: resolvedLastName,
     name: `${resolvedFirstName} ${resolvedLastName}`.trim(),
     emailVerified: true,
     role: ROLES.USER
   });
+  applyOnboardingToUser(user, onboarding);
+  await user.save();
+  return user;
 };
 
 const buildUserAuthResponse = async (user: UserDocument): Promise<UserAuthResponse> => {
@@ -406,11 +463,12 @@ export const loginUser = async ({ email, password }: { email: string; password: 
 
 export const loginWithGoogle = async ({
   idToken,
-  email
+  email,
+  ...onboarding
 }: {
   idToken: string;
   email?: string;
-}): Promise<UserAuthResponse> => {
+} & SocialOnboardingPayload): Promise<UserAuthResponse> => {
   const payload = await verifyGoogleIdToken(idToken);
   if (!payload.email) {
     throw createHttpError('Google account email is missing from token', 400, { code: 'AUTH_GOOGLE_EMAIL_MISSING' });
@@ -427,7 +485,8 @@ export const loginWithGoogle = async ({
   const user = await resolveOrCreateOauthUser({
     email: normalizedPayloadEmail,
     firstName: payload.given_name,
-    lastName: payload.family_name || splitDisplayName(payload.name || '').lastName
+    lastName: payload.family_name || splitDisplayName(payload.name || '').lastName,
+    onboarding
   });
 
   if (user.isBlocked) {
@@ -441,13 +500,14 @@ export const loginWithApple = async ({
   identityToken,
   email,
   firstName,
-  lastName
+  lastName,
+  ...onboarding
 }: {
   identityToken: string;
   email?: string;
   firstName?: string;
   lastName?: string;
-}): Promise<UserAuthResponse> => {
+} & SocialOnboardingPayload): Promise<UserAuthResponse> => {
   const payload = await verifyAppleIdentityToken(identityToken);
   const resolvedEmail = normalizeEmail(email || payload.email || '');
   if (!resolvedEmail) {
@@ -460,7 +520,12 @@ export const loginWithApple = async ({
   const user = await resolveOrCreateOauthUser({
     email: resolvedEmail,
     firstName,
-    lastName
+    lastName,
+    onboarding: {
+      ...onboarding,
+      firstName,
+      lastName
+    }
   });
 
   if (user.isBlocked) {
