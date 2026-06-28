@@ -27,8 +27,8 @@ const API_PREFIX = '/api/v1';
 app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
 app.post(`${API_PREFIX}/subscriptions/webhook`, express.raw({ type: 'application/json' }), stripeWebhook);
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 app.use((req, res, next) => {
   const incomingRequestId = req.headers['x-request-id'];

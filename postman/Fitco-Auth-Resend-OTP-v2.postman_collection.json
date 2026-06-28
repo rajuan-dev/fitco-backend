@@ -254,6 +254,75 @@
           ]
         },
         {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Use this endpoint when the access token expires. Send the current refresh token and replace both token values with the new response."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/refresh",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "refresh"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"user\": {\n    \"uid\": \"usr_01f2e3d4\",\n    \"email\": \"sarah.alotaibi@example.com\",\n    \"displayName\": \"Sarah Al-Otaibi\",\n    \"firstName\": \"Sarah\",\n    \"lastName\": \"Al-Otaibi\",\n    \"subscriptionStatus\": \"active\",\n    \"subscriptionExpiry\": \"2026-12-31T23:59:59.000Z\",\n    \"isSubscribed\": true\n  },\n  \"token\": \"{{newAccessToken}}\",\n  \"refreshToken\": \"{{newRefreshToken}}\"\n}"
+            }
+          ]
+        },
+        {
           "name": "Google Login",
           "request": {
             "method": "POST",
@@ -676,6 +745,85 @@
           ]
         },
         {
+          "name": "AI Meal Scanner",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"imageBase64\": \"{{mealImageBase64}}\",\n  \"mimeType\": \"image/jpeg\",\n  \"servingDescription\": \"1 visible serving\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-foods",
+                "scan",
+                "ai"
+              ]
+            },
+            "description": "Analyze a meal image with AI and return food name plus nutrition facts. This endpoint does not save the food; the app can save the returned data locally."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"imageBase64\": \"{{mealImageBase64}}\",\n  \"mimeType\": \"image/jpeg\",\n  \"servingDescription\": \"1 visible serving\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "custom-foods",
+                    "scan",
+                    "ai"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"source\": \"ai\",\n  \"foodName\": \"Avocado Sourdough Toast with Egg\",\n  \"servingSize\": \"1 visible serving\",\n  \"confidence\": 0.86,\n  \"nutritionFacts\": {\n    \"calories\": {\n      \"value\": 453,\n      \"unit\": \"kcal\"\n    },\n    \"protein\": {\n      \"value\": 20,\n      \"unit\": \"g\"\n    },\n    \"carbs\": {\n      \"value\": 46,\n      \"unit\": \"g\"\n    },\n    \"fats\": {\n      \"value\": 25,\n      \"unit\": \"g\"\n    }\n  },\n  \"calories\": 453,\n  \"protein\": 20,\n  \"carbs\": 46,\n  \"fats\": 25,\n  \"notes\": \"Estimated from the submitted meal image.\"\n}"
+            }
+          ]
+        },
+        {
           "name": "RevenueCat Sync",
           "request": {
             "method": "POST",
@@ -752,6 +900,10 @@
     },
     {
       "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "mealImageBase64",
       "value": ""
     }
   ]

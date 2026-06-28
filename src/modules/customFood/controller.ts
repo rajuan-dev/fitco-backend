@@ -32,6 +32,20 @@ const createCustomFoodValidators = [
   body('fats').optional({ values: 'falsy' }).isFloat({ min: 0 })
 ];
 
+const scanAiMealValidators = [
+  allowOnlyFields(['imageBase64', 'imageUrl', 'mimeType', 'servingDescription']),
+  body('imageBase64').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('imageUrl').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('mimeType').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('servingDescription').optional({ values: 'falsy' }).isString().trim(),
+  body().custom((value) => {
+    if (!value.imageBase64 && !value.imageUrl) {
+      throw new Error('imageBase64 or imageUrl is required');
+    }
+    return true;
+  })
+];
+
 export const createCustomFood = [
   ...createCustomFoodValidators,
   validate,
@@ -51,3 +65,12 @@ export const scanFoodByBarcode = asyncHandler(async (req: Request, res: Response
   const result = await customFoodService.scanFoodByBarcode(req.auth!.id, req.params.barcode as string);
   res.json(result);
 });
+
+export const scanMealWithAi = [
+  ...scanAiMealValidators,
+  validate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await customFoodService.scanMealWithAi(req.auth!.id, req.body);
+    res.json(result);
+  })
+];

@@ -107,6 +107,7 @@ const resetValidators = [
   body('code').isLength({ min: 4, max: 4 }),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters.')
 ];
+const refreshValidators = [allowOnlyFields(['refreshToken']), body('refreshToken').isString().trim().notEmpty()];
 const changeValidators = [
   allowOnlyFields(['currentPassword', 'newPassword']),
   body('currentPassword').notEmpty(),
@@ -173,14 +174,15 @@ export const adminLogin = [
   })
 ];
 
-export const refresh = asyncHandler(async (req: Request, res: Response) => {
-  const { refreshToken } = req.body as { refreshToken?: string };
-  if (!refreshToken) {
-    return res.status(400).json({ message: 'Refresh token required' });
-  }
-  const tokens = await authService.refreshTokens(refreshToken);
-  res.json(tokens);
-});
+export const refresh = [
+  ...refreshValidators,
+  validateAuthRequest,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { refreshToken } = req.body as { refreshToken: string };
+    const tokens = await authService.refreshTokens(refreshToken);
+    res.json(tokens);
+  })
+];
 
 export const forgotPassword = [
   ...forgotValidators,

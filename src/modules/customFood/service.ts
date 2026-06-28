@@ -1,5 +1,6 @@
 import FoodDatabaseModel, { FoodDatabaseDocument, FoodServingUnit } from '../foodDatabase/model';
 import * as foodDatabaseService from '../foodDatabase/service';
+import openai from '../../config/openai';
 
 interface CreateCustomFoodPayload {
   barcode?: string;
@@ -40,12 +41,38 @@ interface ScanBarcodeResponse {
   fat: number;
 }
 
+interface ScanAiMealPayload {
+  imageBase64?: string;
+  imageUrl?: string;
+  mimeType?: string;
+  servingDescription?: string;
+}
+
+interface AiMealScanResponse {
+  source: 'ai';
+  foodName: string;
+  servingSize: string;
+  confidence: number;
+  nutritionFacts: {
+    calories: { value: number; unit: 'kcal' };
+    protein: { value: number; unit: 'g' };
+    carbs: { value: number; unit: 'g' };
+    fats: { value: number; unit: 'g' };
+  };
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  notes: string;
+}
+
 interface ListCustomFoodParams {
   userId: string;
   search?: string;
 }
 
 const createHttpError = (message: string, statusCode: number) => Object.assign(new Error(message), { statusCode });
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
 const normalizeBarcode = (barcode?: string): string | undefined => {
   const normalized = String(barcode || '').trim();
@@ -83,6 +110,87 @@ const parseServingSize = (value?: string): { servingSize: number; servingUnit: F
 };
 
 const formatServingSize = (servingSize: number, servingUnit: FoodServingUnit): string => `${servingSize}${servingUnit}`;
+
+const roundNutrition = (value: unknown, fallback = 0): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+  return Math.round(numeric);
+};
+
+const normalizeConfidence = (value: unknown): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0.7;
+  return Math.min(1, Math.max(0, Math.round(numeric * 100) / 100));
+};
+
+const resolveMealImageUrl = (payload: ScanAiMealPayload): string => {
+  const imageUrl = String(payload.imageUrl || '').trim();
+  if (imageUrl) {
+    if (!/^https?:\/\//i.test(imageUrl) && !imageUrl.startsWith('data:image/')) {
+      throw createHttpError('imageUrl must be an http(s) URL or a data image URL', 400);
+    }
+    return imageUrl;
+  }
+
+  const rawBase64 = String(payload.imageBase64 || '').trim();
+  if (!rawBase64) {
+    throw createHttpError('imageBase64 or imageUrl is required', 400);
+  }
+
+  if (rawBase64.startsWith('data:image/')) {
+    return rawBase64;
+  }
+
+  const mimeType = String(payload.mimeType || 'image/jpeg').trim().toLowerCase();
+  if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType)) {
+    throw createHttpError('mimeType must be image/jpeg, image/png, or image/webp', 400);
+  }
+
+  const normalizedBase64 = rawBase64.replace(/\s/g, '');
+  if (!/^[a-z0-9+/]+={0,2}$/i.test(normalizedBase64)) {
+    throw createHttpError('imageBase64 must be a valid base64 encoded image', 400);
+  }
+
+  return `data:${mimeType};base64,${normalizedBase64}`;
+};
+
+const parseAiMealJson = (content: string): Record<string, unknown> => {
+  try {
+    return JSON.parse(content);
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) {
+      throw createHttpError('AI meal scanner returned an unreadable response', 502);
+    }
+    return JSON.parse(match[0]);
+  }
+};
+
+const mapAiMealResponse = (payload: Record<string, unknown>): AiMealScanResponse => {
+  const nutrition = (payload.nutritionFacts || payload.nutrition || {}) as Record<string, unknown>;
+  const calories = roundNutrition((nutrition.calories as any)?.value ?? nutrition.calories ?? payload.calories);
+  const protein = roundNutrition((nutrition.protein as any)?.value ?? nutrition.protein ?? payload.protein);
+  const carbs = roundNutrition((nutrition.carbs as any)?.value ?? nutrition.carbs ?? payload.carbs);
+  const fats = roundNutrition((nutrition.fats as any)?.value ?? nutrition.fats ?? nutrition.fat ?? payload.fats ?? payload.fat);
+
+  return {
+    source: 'ai',
+    foodName: String(payload.foodName || payload.name || 'Unknown meal').trim(),
+    servingSize: String(payload.servingSize || '1 serving').trim(),
+    confidence: normalizeConfidence(payload.confidence),
+    nutritionFacts: {
+      calories: { value: calories, unit: 'kcal' },
+      protein: { value: protein, unit: 'g' },
+      carbs: { value: carbs, unit: 'g' },
+      fats: { value: fats, unit: 'g' }
+    },
+    calories,
+    protein,
+    carbs,
+    fats,
+    notes: String(payload.notes || 'Estimated from the submitted meal image.').trim()
+  };
+};
 
 const mapFoodToCustomFood = (food: FoodDatabaseDocument): CustomFoodListItem => ({
   id: food._id.toString(),
@@ -156,4 +264,49 @@ export const scanFoodByBarcode = async (_userId: string, barcode: string): Promi
   }
 
   return mapFoodToScanResponse(food);
+};
+
+export const scanMealWithAi = async (_userId: string, payload: ScanAiMealPayload): Promise<AiMealScanResponse> => {
+  if (!process.env.OPENAI_API_KEY) {
+    throw createHttpError('AI meal scanner is not configured. Missing OPENAI_API_KEY.', 500);
+  }
+
+  const imageUrl = resolveMealImageUrl(payload);
+  const servingDescription = String(payload.servingDescription || 'the visible meal portion in the image').trim();
+
+  const completion = await openai.chat.completions.create(
+    {
+      model: 'gpt-4o-mini',
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are Fitco AI Meal Scanner. Identify the meal from the image and estimate nutrition for the visible portion only. Return strict JSON with foodName, servingSize, confidence from 0 to 1, nutritionFacts.calories.value, nutritionFacts.protein.value, nutritionFacts.carbs.value, nutritionFacts.fats.value, and notes. Use kcal and grams. If uncertain, choose the most likely food name and provide a conservative estimate.'
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Estimate this meal for ${servingDescription}. Return only JSON.`
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: imageUrl,
+                detail: 'low'
+              }
+            }
+          ] as any
+        }
+      ]
+    },
+    {
+      timeout: 30000
+    }
+  );
+
+  const content = completion.choices[0]?.message?.content || '';
+  return mapAiMealResponse(parseAiMealJson(content));
 };
