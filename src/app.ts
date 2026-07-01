@@ -19,6 +19,7 @@ import dashboardRoutes from './modules/dashboard/routes';
 import foodDatabaseRoutes from './modules/foodDatabase/routes';
 import foodLogRoutes from './modules/foodLog/routes';
 import customFoodRoutes from './modules/customFood/routes';
+import uploadRoutes from './modules/upload/routes';
 import { stripeWebhook } from './modules/subscription/controller';
 
 const app = express();
@@ -72,6 +73,7 @@ app.use(`${API_PREFIX}/dashboard`, dashboardRoutes);
 app.use(`${API_PREFIX}/food-database`, foodDatabaseRoutes);
 app.use(`${API_PREFIX}/food-logs`, foodLogRoutes);
 app.use(`${API_PREFIX}/custom-foods`, customFoodRoutes);
+app.use(`${API_PREFIX}/uploads`, uploadRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

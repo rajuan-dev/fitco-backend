@@ -62,6 +62,16 @@ export interface AppConfig {
     premiumEntitlementId: string;
     webhookAuthToken: string;
   };
+  s3: {
+    region: string;
+    bucket: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    defaultFolder: string;
+    signedUrlExpiresSeconds: number;
+    maxFileSizeBytes: number;
+    allowedMimeTypes: string[];
+  };
 }
 
 const config: AppConfig = {
@@ -151,6 +161,19 @@ const config: AppConfig = {
     secretKey: process.env.REVENUECAT_SECRET_KEY || '',
     premiumEntitlementId: process.env.REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'premium',
     webhookAuthToken: process.env.REVENUECAT_WEBHOOK_AUTH_TOKEN || ''
+  },
+  s3: {
+    region: process.env.AWS_REGION || '',
+    bucket: process.env.AWS_S3_BUCKET || '',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+    defaultFolder: process.env.AWS_S3_DEFAULT_FOLDER || 'uploads',
+    signedUrlExpiresSeconds: Number(process.env.AWS_S3_SIGNED_URL_EXPIRES_SECONDS || 300),
+    maxFileSizeBytes: Number(process.env.AWS_S3_MAX_FILE_SIZE_MB || 10) * 1024 * 1024,
+    allowedMimeTypes: (process.env.AWS_S3_ALLOWED_MIME_TYPES || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean)
   }
 };
 
