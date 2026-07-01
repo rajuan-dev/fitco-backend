@@ -44,7 +44,16 @@ const validateMimeType = (mimeType: string) => {
     return;
   }
 
-  if (!config.s3.allowedMimeTypes.includes(mimeType)) {
+  const isAllowed = config.s3.allowedMimeTypes.some(allowedType => {
+    if (allowedType.endsWith('/*')) {
+      const prefix = allowedType.slice(0, -1);
+      return mimeType.startsWith(prefix);
+    }
+
+    return allowedType === mimeType;
+  });
+
+  if (!isAllowed) {
     throw createHttpError('File type is not allowed', 400, {
       code: 'UPLOAD_INVALID_FILE_TYPE',
       details: { allowedMimeTypes: config.s3.allowedMimeTypes }
