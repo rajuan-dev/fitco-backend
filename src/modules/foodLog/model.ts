@@ -36,6 +36,7 @@ export interface FoodLogDocument extends Document {
   foodSource: FoodLogSource;
   foodName: string;
   brandName?: string;
+  imageUrl?: string;
   meal: FoodLogMeal;
   servings: number;
   servingSize: number;
@@ -77,6 +78,7 @@ const FoodLogSchema = new Schema<FoodLogDocument>(
     foodSource: { type: String, enum: FOOD_LOG_SOURCES, required: true, default: 'database', index: true },
     foodName: { type: String, required: true, trim: true },
     brandName: { type: String, trim: true, default: '' },
+    imageUrl: { type: String, trim: true, default: '' },
     meal: { type: String, enum: FOOD_LOG_MEALS, required: true },
     servings: { type: Number, required: true, min: 0.01 },
     servingSize: { type: Number, required: true, min: 0.01 },

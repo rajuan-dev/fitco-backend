@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
-import { body } from 'express-validator';
+import { body, param } from 'express-validator';
 import asyncHandler from '../../utils/asyncHandler';
 import validate from '../../middlewares/validationMiddleware';
 import { getSingleQueryParam } from '../../utils/query';
 import * as customFoodService from './service';
+import { FOOD_LOG_MEALS } from '../foodLog/model';
 
 const allowOnlyFields = (allowedFields: string[]) =>
   body().custom((value) => {
@@ -46,6 +47,112 @@ const scanAiMealValidators = [
   })
 ];
 
+const saveAiMealValidators = [
+  allowOnlyFields([
+    'meal',
+    'imageBase64',
+    'imageUrl',
+    'mimeType',
+    'foodName',
+    'confidence',
+    'nutritionFacts',
+    'calories',
+    'protein',
+    'carbs',
+    'fats',
+    'fat',
+    'notes',
+    'loggedAt'
+  ]),
+  body('meal').isIn(FOOD_LOG_MEALS as unknown as string[]),
+  body('imageBase64').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('imageUrl').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('mimeType').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('foodName').isString().trim().notEmpty(),
+  body('confidence').optional({ values: 'falsy' }).isFloat({ min: 0, max: 1 }),
+  body('nutritionFacts').optional().isObject(),
+  body('nutritionFacts.calories.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('nutritionFacts.protein.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('nutritionFacts.carbs.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('nutritionFacts.fats.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('calories').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('protein').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('carbs').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('fats').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('fat').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('notes').optional({ values: 'falsy' }).isString().trim(),
+  body('loggedAt').optional({ values: 'falsy' }).isISO8601(),
+  body().custom((value) => {
+    const hasNutritionFacts =
+      value.nutritionFacts &&
+      typeof value.nutritionFacts === 'object' &&
+      (value.nutritionFacts.calories?.value !== undefined ||
+        value.nutritionFacts.protein?.value !== undefined ||
+        value.nutritionFacts.carbs?.value !== undefined ||
+        value.nutritionFacts.fats?.value !== undefined);
+    const hasFlatNutrition =
+      value.calories !== undefined || value.protein !== undefined || value.carbs !== undefined || value.fats !== undefined || value.fat !== undefined;
+
+    if (!hasNutritionFacts && !hasFlatNutrition) {
+      throw new Error('Nutrition values are required');
+    }
+
+    if (!value.imageBase64 && !value.imageUrl) {
+      throw new Error('imageBase64 or imageUrl is required');
+    }
+
+    return true;
+  })
+];
+
+const aiMealLogIdValidators = [param('foodLogId').isMongoId()];
+
+const updateAiMealValidators = [
+  ...aiMealLogIdValidators,
+  allowOnlyFields([
+    'meal',
+    'imageBase64',
+    'imageUrl',
+    'mimeType',
+    'foodName',
+    'confidence',
+    'nutritionFacts',
+    'calories',
+    'protein',
+    'carbs',
+    'fats',
+    'fat',
+    'notes',
+    'loggedAt'
+  ]),
+  body().custom((value) => {
+    if (Object.keys(value).length === 0) {
+      throw new Error('At least one field is required');
+    }
+    return true;
+  }),
+  body('meal').optional().isIn(FOOD_LOG_MEALS as unknown as string[]),
+  body('imageBase64').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('imageUrl').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('mimeType').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('foodName').optional({ values: 'falsy' }).isString().trim().notEmpty(),
+  body('confidence').optional({ values: 'falsy' }).isFloat({ min: 0, max: 1 }),
+  body('nutritionFacts').optional().isObject(),
+  body('nutritionFacts.calories.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('nutritionFacts.protein.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('nutritionFacts.carbs.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('nutritionFacts.fats.value').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('calories').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('protein').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('carbs').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('fats').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('fat').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('notes').optional({ values: 'falsy' }).isString().trim(),
+  body('loggedAt').optional({ values: 'falsy' }).isISO8601()
+];
+
+const deleteAiMealValidators = [...aiMealLogIdValidators];
+
 export const createCustomFood = [
   ...createCustomFoodValidators,
   validate,
@@ -71,6 +178,33 @@ export const scanMealWithAi = [
   validate,
   asyncHandler(async (req: Request, res: Response) => {
     const result = await customFoodService.scanMealWithAi(req.auth!.id, req.body);
+    res.json(result);
+  })
+];
+
+export const saveAiScannedMeal = [
+  ...saveAiMealValidators,
+  validate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await customFoodService.saveAiScannedMeal(req.auth!.id, req.body);
+    res.status(201).json(result);
+  })
+];
+
+export const updateAiScannedMeal = [
+  ...updateAiMealValidators,
+  validate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await customFoodService.updateAiScannedMeal(req.auth!.id, req.params.foodLogId as string, req.body);
+    res.json(result);
+  })
+];
+
+export const deleteAiScannedMeal = [
+  ...deleteAiMealValidators,
+  validate,
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await customFoodService.deleteAiScannedMeal(req.auth!.id, req.params.foodLogId as string);
     res.json(result);
   })
 ];
