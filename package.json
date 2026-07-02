@@ -4,9 +4,9 @@
   "description": "Creedtng - AI-powered fitness backend and admin dashboard",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon --watch src --ext ts --exec \"ts-node src/server.ts\"",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "dev": "node api.js && nodemon --watch src --ext ts --exec \"ts-node src/server.ts\"",
+    "build": "node api.js && tsc",
+    "start": "node api.js && node dist/server.js",
     "import:food-csv": "ts-node src/seed/importFoodDatabaseCsv.ts",
     "report:food-csv": "ts-node src/seed/generateFoodCsvReport.ts",
     "backfill:google-transactions-usd": "ts-node src/seed/backfillGoogleTransactionUsd.ts",
