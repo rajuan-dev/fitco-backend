@@ -913,7 +913,7 @@
                 "ai"
               ]
             },
-            "description": "Analyze a meal image with AI and return food name plus nutrition facts. This endpoint does not save the food; the app can save the returned data locally."
+            "description": "Analyze a meal image with AI and return food name plus nutrition facts. This endpoint still does not save the food; use POST /api/v1/custom-foods/scan/ai/save to persist the AI result and then PATCH or DELETE /api/v1/custom-foods/scan/ai/:foodLogId to manage it later."
           },
           "response": [
             {
@@ -958,6 +958,87 @@
                 }
               ],
               "body": "{\n  \"source\": \"ai\",\n  \"foodName\": \"Avocado Sourdough Toast with Egg\",\n  \"servingSize\": \"1 visible serving\",\n  \"confidence\": 0.86,\n  \"nutritionFacts\": {\n    \"calories\": {\n      \"value\": 453,\n      \"unit\": \"kcal\"\n    },\n    \"protein\": {\n      \"value\": 20,\n      \"unit\": \"g\"\n    },\n    \"carbs\": {\n      \"value\": 46,\n      \"unit\": \"g\"\n    },\n    \"fats\": {\n      \"value\": 25,\n      \"unit\": \"g\"\n    }\n  },\n  \"calories\": 453,\n  \"protein\": 20,\n  \"carbs\": 46,\n  \"fats\": 25,\n  \"notes\": \"Estimated from the submitted meal image.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Save AI Meal Scan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"meal\": \"lunch\",\n  \"imageBase64\": \"{{mealImageBase64}}\",\n  \"mimeType\": \"image/jpeg\",\n  \"foodName\": \"Avocado Sourdough Toast with Egg\",\n  \"confidence\": 0.86,\n  \"nutritionFacts\": {\n    \"calories\": { \"value\": 453, \"unit\": \"kcal\" },\n    \"protein\": { \"value\": 20, \"unit\": \"g\" },\n    \"carbs\": { \"value\": 46, \"unit\": \"g\" },\n    \"fats\": { \"value\": 25, \"unit\": \"g\" }\n  },\n  \"notes\": \"Estimated from the submitted meal image.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai/save",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-foods",
+                "scan",
+                "ai",
+                "save"
+              ]
+            },
+            "description": "Save an AI meal scan result to the food log with a required meal category. If a base64 image or data URL is sent, the backend uploads it to S3 and stores the resulting image URL on the food log."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"meal\": \"lunch\",\n  \"imageBase64\": \"{{mealImageBase64}}\",\n  \"mimeType\": \"image/jpeg\",\n  \"foodName\": \"Avocado Sourdough Toast with Egg\",\n  \"confidence\": 0.86,\n  \"nutritionFacts\": {\n    \"calories\": { \"value\": 453, \"unit\": \"kcal\" },\n    \"protein\": { \"value\": 20, \"unit\": \"g\" },\n    \"carbs\": { \"value\": 46, \"unit\": \"g\" },\n    \"fats\": { \"value\": 25, \"unit\": \"g\" }\n  },\n  \"notes\": \"Estimated from the submitted meal image.\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai/save",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "custom-foods",
+                    "scan",
+                    "ai",
+                    "save"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"message\": \"AI scanned meal saved successfully\",\n  \"foodLog\": {\n    \"id\": \"686000000000000000000001\",\n    \"foodId\": \"686000000000000000000002\",\n    \"meal\": \"lunch\",\n    \"foodName\": \"Avocado Sourdough Toast with Egg\",\n    \"imageUrl\": \"https://fitco-storage-prod.s3.ap-south-1.amazonaws.com/meal-scans/1720000000000-sample.jpg\",\n    \"calories\": 453,\n    \"protein\": 20,\n    \"carbs\": 46,\n    \"fat\": 25,\n    \"confidence\": 0.86,\n    \"notes\": \"Estimated from the submitted meal image.\",\n    \"loggedAt\": \"2026-07-02T12:30:00.000Z\"\n  }\n}"
             }
           ]
         },
@@ -1023,6 +1104,152 @@
               "body": "{\n  \"success\": true,\n  \"message\": \"Subscription synced successfully\",\n  \"user\": {\n    \"uid\": \"usr_01f2e3d4\",\n    \"email\": \"sarah.alotaibi@example.com\",\n    \"displayName\": \"Sarah Al-Otaibi\",\n    \"firstName\": \"Sarah\",\n    \"lastName\": \"Al-Otaibi\",\n    \"subscriptionStatus\": \"active\",\n    \"subscriptionExpiry\": \"2026-12-31T23:59:59.000Z\",\n    \"isSubscribed\": true\n  },\n  \"normalized\": {\n    \"isActive\": true\n  },\n  \"subscription\": {\n    \"isActive\": true\n  }\n}"
             }
           ]
+        },
+        {
+          "name": "Update AI Meal Scan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"meal\": \"dinner\",\n  \"foodName\": \"Chicken Salad Bowl\",\n  \"calories\": 390,\n  \"protein\": 32,\n  \"carbs\": 18,\n  \"fat\": 20,\n  \"notes\": \"Updated after user review.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai/{{aiFoodLogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-foods",
+                "scan",
+                "ai",
+                "{{aiFoodLogId}}"
+              ]
+            },
+            "description": "Update a previously saved AI meal scan. You can change meal, image, food name, nutrition values, notes, and loggedAt."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"meal\": \"dinner\",\n  \"foodName\": \"Chicken Salad Bowl\",\n  \"calories\": 390,\n  \"protein\": 32,\n  \"carbs\": 18,\n  \"fat\": 20,\n  \"notes\": \"Updated after user review.\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai/{{aiFoodLogId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "custom-foods",
+                    "scan",
+                    "ai",
+                    "{{aiFoodLogId}}"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"message\": \"AI scanned meal updated successfully\",\n  \"foodLog\": {\n    \"id\": \"686000000000000000000001\",\n    \"foodId\": \"686000000000000000000002\",\n    \"meal\": \"dinner\",\n    \"foodName\": \"Chicken Salad Bowl\",\n    \"imageUrl\": \"https://fitco-storage-prod.s3.ap-south-1.amazonaws.com/meal-scans/1720000000000-sample.jpg\",\n    \"calories\": 390,\n    \"protein\": 32,\n    \"carbs\": 18,\n    \"fat\": 20,\n    \"confidence\": 0.7,\n    \"notes\": \"Updated after user review.\",\n    \"loggedAt\": \"2026-07-02T12:30:00.000Z\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete AI Meal Scan",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai/{{aiFoodLogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-foods",
+                "scan",
+                "ai",
+                "{{aiFoodLogId}}"
+              ]
+            },
+            "description": "Delete a previously saved AI meal scan from food logs. If no other logs reference the linked AI food record, the linked custom food entry is removed too."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{accessToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/custom-foods/scan/ai/{{aiFoodLogId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "custom-foods",
+                    "scan",
+                    "ai",
+                    "{{aiFoodLogId}}"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"message\": \"AI scanned meal deleted successfully\",\n  \"deletedFoodLog\": {\n    \"id\": \"686000000000000000000001\",\n    \"meal\": \"dinner\",\n    \"foodName\": \"Chicken Salad Bowl\",\n    \"imageUrl\": \"https://fitco-storage-prod.s3.ap-south-1.amazonaws.com/meal-scans/1720000000000-sample.jpg\",\n    \"loggedAt\": \"2026-07-02T12:30:00.000Z\"\n  }\n}"
+            }
+          ]
         }
       ]
     }
@@ -1042,6 +1269,10 @@
     },
     {
       "key": "mealImageBase64",
+      "value": ""
+    },
+    {
+      "key": "aiFoodLogId",
       "value": ""
     }
   ]
