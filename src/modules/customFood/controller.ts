@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { body, param } from 'express-validator';
 import asyncHandler from '../../utils/asyncHandler';
 import validate from '../../middlewares/validationMiddleware';
@@ -107,24 +107,49 @@ const saveAiMealValidators = [
 
 const aiMealLogIdValidators = [param('foodLogId').isMongoId()];
 
+const aiMealUpdateFields = [
+  'meal',
+  'imageBase64',
+  'imageUrl',
+  'mimeType',
+  'foodName',
+  'confidence',
+  'nutritionFacts',
+  'calories',
+  'protein',
+  'carbs',
+  'fats',
+  'fat',
+  'notes',
+  'loggedAt'
+];
+
+const normalizeAiMealUpdateBody = (req: Request, _res: Response, next: NextFunction): void => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    next();
+    return;
+  }
+
+  const normalizedBody: Record<string, unknown> = {};
+
+  for (const field of aiMealUpdateFields) {
+    if (req.body[field] !== undefined) {
+      normalizedBody[field] = req.body[field];
+    }
+  }
+
+  if (req.body.name !== undefined && normalizedBody.foodName === undefined) {
+    normalizedBody.foodName = req.body.name;
+  }
+
+  req.body = normalizedBody;
+
+  next();
+};
+
 const updateAiMealValidators = [
   ...aiMealLogIdValidators,
-  allowOnlyFields([
-    'meal',
-    'imageBase64',
-    'imageUrl',
-    'mimeType',
-    'foodName',
-    'confidence',
-    'nutritionFacts',
-    'calories',
-    'protein',
-    'carbs',
-    'fats',
-    'fat',
-    'notes',
-    'loggedAt'
-  ]),
+  allowOnlyFields(aiMealUpdateFields),
   body().custom((value) => {
     if (Object.keys(value).length === 0) {
       throw new Error('At least one field is required');
@@ -192,6 +217,7 @@ export const saveAiScannedMeal = [
 ];
 
 export const updateAiScannedMeal = [
+  normalizeAiMealUpdateBody,
   ...updateAiMealValidators,
   validate,
   asyncHandler(async (req: Request, res: Response) => {
