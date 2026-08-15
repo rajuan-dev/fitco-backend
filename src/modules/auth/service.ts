@@ -27,6 +27,8 @@ interface UserAuthResponse {
   user: AuthUser;
   token: string;
   refreshToken: string;
+  referralCode?: string;
+  referralCodeStatus?: ReferralCodeStatus;
 }
 
 interface SanitizedAccount {
@@ -70,8 +72,10 @@ interface RegisterResponse {
   message: string;
   email: string;
   referralCode?: string;
-  referralCodeStatus: 'valid' | 'invalid' | 'not_provided';
+  referralCodeStatus: ReferralCodeStatus;
 }
+
+type ReferralCodeStatus = 'valid' | 'invalid' | 'not_provided';
 
 interface GoogleTokenInfo {
   aud?: string;
@@ -120,6 +124,15 @@ const persistRefreshToken = async (account: AccountDocument, token: string, deco
 const hashOtp = (code: string): string => crypto.createHash('sha256').update(code).digest('hex');
 const generateOtp = (): string => crypto.randomInt(0, 10000).toString().padStart(4, '0');
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+const normalizeReferralCode = (referralCode?: string): string | undefined => referralCode?.trim().toUpperCase() || undefined;
+
+const getReferralCodeStatus = async (referralCode?: string): Promise<ReferralCodeStatus> => {
+  if (!referralCode) {
+    return 'not_provided';
+  }
+
+  return (await getCouponByCode(referralCode)) ? 'valid' : 'invalid';
+};
 
 const buildDisplayName = (user: Pick<UserDocument, 'name' | 'firstName' | 'lastName'>): string =>
   user.name || [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
@@ -288,7 +301,7 @@ const assertSocialOnboardingComplete = (payload: SocialOnboardingPayload, resolv
 };
 
 const applyOnboardingToUser = (user: UserDocument, payload: SocialOnboardingPayload): void => {
-  const normalizedReferralCode = payload.referralCode?.trim().toUpperCase() || undefined;
+  const normalizedReferralCode = normalizeReferralCode(payload.referralCode);
 
   user.referralCode = normalizedReferralCode;
   user.age = Number(payload.age);
@@ -347,7 +360,10 @@ const resolveOrCreateOauthUser = async ({
   return user;
 };
 
-const buildUserAuthResponse = async (user: UserDocument): Promise<UserAuthResponse> => {
+const buildUserAuthResponse = async (
+  user: UserDocument,
+  referral?: { code?: string; status?: ReferralCodeStatus }
+): Promise<UserAuthResponse> => {
   const token = generateAccessToken(buildTokensPayload(user));
   const refreshToken = generateRefreshToken(buildTokensPayload(user));
   const decoded = verifyRefreshToken(refreshToken);
@@ -356,7 +372,9 @@ const buildUserAuthResponse = async (user: UserDocument): Promise<UserAuthRespon
   return {
     user: await sanitizeUserForAuth(user),
     token,
-    refreshToken
+    refreshToken,
+    ...(referral?.code ? { referralCode: referral.code } : {}),
+    ...(referral?.status ? { referralCodeStatus: referral.status } : {})
   };
 };
 
@@ -364,7 +382,7 @@ export const registerUser = async (payload: RegisterPayload): Promise<RegisterRe
   const email = normalizeEmail(payload.email);
   const firstName = payload.firstName.trim();
   const lastName = payload.lastName.trim();
-  const normalizedReferralCode = payload.referralCode?.trim().toUpperCase() || undefined;
+  const normalizedReferralCode = normalizeReferralCode(payload.referralCode);
   const existing = await UserModel.findOne({ email });
 
   if (existing?.emailVerified) {
@@ -400,9 +418,7 @@ export const registerUser = async (payload: RegisterPayload): Promise<RegisterRe
   user.refreshTokens = [];
   await user.save();
 
-  const referralCodeStatus = normalizedReferralCode
-    ? ((await getCouponByCode(normalizedReferralCode)) ? 'valid' : 'invalid')
-    : 'not_provided';
+  const referralCodeStatus = await getReferralCodeStatus(normalizedReferralCode);
 
   const otp = await createOtpRecord({ userId: user._id.toString(), type: 'email_verification' });
   await sendRegistrationOtpEmail({ email: user.email, otp });
@@ -493,7 +509,11 @@ export const loginWithGoogle = async ({
     throw createHttpError('Account is blocked', 403, { code: 'AUTH_ACCOUNT_BLOCKED' });
   }
 
-  return buildUserAuthResponse(user);
+  const referralCode = normalizeReferralCode(onboarding.referralCode);
+  return buildUserAuthResponse(user, {
+    code: referralCode,
+    status: await getReferralCodeStatus(referralCode)
+  });
 };
 
 export const loginWithApple = async ({
@@ -532,7 +552,11 @@ export const loginWithApple = async ({
     throw createHttpError('Account is blocked', 403, { code: 'AUTH_ACCOUNT_BLOCKED' });
   }
 
-  return buildUserAuthResponse(user);
+  const referralCode = normalizeReferralCode(onboarding.referralCode);
+  return buildUserAuthResponse(user, {
+    code: referralCode,
+    status: await getReferralCodeStatus(referralCode)
+  });
 };
 
 export const loginAdmin = async ({ email, password }: { email: string; password: string }): Promise<AdminAuthResponse | null> => {
